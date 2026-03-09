@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full bg-gray-300 antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Vozvrat — Система управления возвратами</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'IBM Plex Mono', monospace; }
+        
+        @keyframes fadeInBlur {
+            0% { opacity: 0; filter: blur(10px); transform: scale(0.98); }
+            100% { opacity: 1; filter: blur(0px); transform: scale(1); }
+        }
+        .animate-screen { animation: fadeInBlur 0.5s ease-out both; }
+        
+        /* Стили для статусов */
+        .status-received { background-color: #dbeafe; color: #1d4ed8; }
+        .status-work { background-color: #fef9c3; color: #a16207; }
+        .status-archive { background-color: #f3f4f6; color: #374151; }
+        .status-done { background-color: #dcfce7; color: #15803d; }
+
+        /* Кастомный скролл для таблиц на мобилках */
+        .table-container::-webkit-scrollbar { height: 4px; }
+        .table-container::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+    </style>
+</head>
+<body class="h-full flex flex-col items-center justify-center p-0 md:p-4">
+
+    <div class="fixed top-2 z-[100] bg-white/50 backdrop-blur-md p-2 rounded-full shadow-lg border border-white/20 flex gap-2 overflow-x-auto max-w-[95%] text-[10px] uppercase font-bold tracking-wider">
+        <button onclick="showScreen('auth')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">1. Вход</button>
+        <button onclick="showScreen('statistics')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">2. Статистика</button>
+        <button onclick="showScreen('staff-list')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">3. Список (Сотр)</button>
+        <button onclick="showScreen('staff-card')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">4. Карточка (Сотр)</button>
+        <button onclick="showScreen('create-manual')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">5. Создание</button>
+        <button onclick="showScreen('suppliers')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">6. Поставщики</button>
+        <button onclick="showScreen('users')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">7. Юзеры</button>
+        <button onclick="showScreen('client-list')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">8. ЛК Клиента</button>
+        <button onclick="showScreen('client-card')" class="px-3 py-1 hover:bg-black/10 rounded-full whitespace-nowrap">9. Карточка (Клиент)</button>
+    </div>
+
+    <div id="mobile-header" class="md:hidden w-full bg-white border-b border-gray-200 p-4 flex justify-between items-center hidden">
+        <div class="flex items-center gap-2">
+            <div class="w-6 h-6 bg-black rounded flex items-center justify-center">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3"/></svg>
+            </div>
+            <span class="font-bold text-lg tracking-tight">VOZVRAT</span>
+        </div>
+        <button onclick="toggleSidebar()" class="p-2 bg-gray-100 rounded-lg">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+    </div>
+
+    <div id="app-viewport" class="w-full max-w-[1440px] h-full md:h-[850px] bg-gray-100 md:rounded-[28px] shadow-2xl overflow-hidden flex flex-col md:flex-row border border-white/40">
+        
+        <aside id="main-sidebar" class="hidden md:flex flex-col w-64 bg-white/80 backdrop-blur-md border-r border-gray-200 transition-all z-[101]">
+            <div class="p-6">
+                <div class="flex items-center gap-2 mb-8">
+                    <div class="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"/></svg>
+                    </div>
+                    <h1 class="font-bold text-xl tracking-tight text-gray-900">VOZVRAT</h1>
+                </div>
+
+                <nav class="space-y-1 text-sm font-medium" id="sidebar-nav">
+                    </nav>
+            </div>
+            
+            <div class="mt-auto p-4 border-t border-gray-100">
+                <div class="flex items-center gap-3 p-2">
+                    <img id="user-avatar" src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80" class="w-8 h-8 rounded-full">
+                    <div>
+                        <p class="text-xs font-semibold" id="user-name">Александр К.</p>
+                        <p class="text-[10px] text-gray-500 uppercase tracking-widest" id="user-role">Сотрудник</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main id="main-content" class="flex-1 overflow-y-auto relative bg-gray-50 pb-20 md:pb-0">
+            </main>
+    </div>
+
+<script>
+    const screens = {
+        // 1. ЭКРАН АВТОРИЗАЦИИ
+        auth: `
+            <div class="h-full flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300 animate-screen p-4">
+                <div class="w-full max-w-md p-8 bg-white/70 backdrop-blur-xl rounded-[32px] shadow-xl border border-white/50">
+                    <div class="text-center mb-8">
+                        <h2 class="text-2xl font-bold text-gray-900">С возвращением</h2>
+                        <p class="text-gray-500 text-sm mt-2">Войдите в систему Vozvrat</p>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1 ml-1">Email</label>
+                            <input type="email" class="w-full px-4 py-3 rounded-2xl border-none bg-white shadow-sm focus:ring-2 focus:ring-black transition-all" placeholder="name@company.ru">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1 ml-1">Пароль</label>
+                            <input type="password" class="w-full px-4 py-3 rounded-2xl border-none bg-white shadow-sm focus:ring-2 focus:ring-black transition-all" placeholder="••••••••">
+                        </div>
+                        <button onclick="showScreen('staff-list')" class="w-full py-4 bg-gray-900 text-white rounded-2xl font-semibold hover:bg-black transition-all shadow-lg active:scale-[0.98]">Войти в систему</button>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 2. СТАТИСТИКА
+        statistics: `
+            <div class="p-4 md:p-8 animate-screen">
+                <div class="mb-8">
+                    <h2 class="text-3xl font-bold text-gray-900 tracking-tight">Статистика</h2>
+                    <p class="text-gray-500">Общие показатели системы возвратов</p>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">В работе</p>
+                        <p class="text-2xl font-bold">24</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Новые (Mail)</p>
+                        <p class="text-2xl font-bold">12</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Ожидают УКД</p>
+                        <p class="text-2xl font-bold">08</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                        <p class="text-[10px] font-bold text-green-500 uppercase tracking-widest">Архив</p>
+                        <p class="text-2xl font-bold">142</p>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 3. ГЛАВНАЯ - СПИСОК ВОЗВРАТОВ (СОТРУДНИК)
+        'staff-list': `
+            <div class="p-4 md:p-8 animate-screen">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-900 tracking-tight">Все возвраты</h2>
+                        <p class="text-gray-500">Управление входящими и текущими заявками</p>
+                    </div>
+                    <button onclick="showScreen('create-manual')" class="w-full md:w-auto px-4 py-3 bg-gray-900 text-white rounded-xl text-sm font-semibold shadow-md flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+                        Создать возврат
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 ml-1">Статус</label>
+                        <select class="w-full bg-gray-50 border-none rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black">
+                            <option>Все статусы</option>
+                            <option>Получен</option>
+                            <option>В работе</option>
+                            <option>Согласован</option>
+                            <option>Архив</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 ml-1">Поставщик</label>
+                        <select class="w-full bg-gray-50 border-none rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black">
+                            <option>Все поставщики</option>
+                            <option>ООО «Запчасть-Опт»</option>
+                            <option>Bosch Russia</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 ml-1">Клиент</label>
+                        <input type="text" placeholder="Поиск по клиенту..." class="w-full bg-gray-50 border-none rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1.5 ml-1">Дата</label>
+                        <input type="date" class="w-full bg-gray-50 border-none rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black">
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+                    <div class="overflow-x-auto table-container">
+                        <table class="w-full text-left border-collapse min-w-[700px]">
+                            <thead>
+                                <tr class="bg-gray-50/50 border-b border-gray-100 text-[11px] uppercase font-bold text-gray-400 tracking-wider">
+                                    <th class="px-6 py-4">ID Заказа / Дата</th>
+                                    <th class="px-6 py-4">Клиент / Поставщик</th>
+                                    <th class="px-6 py-4">Сумма</th>
+                                    <th class="px-6 py-4">Статус</th>
+                                    <th class="px-6 py-4 text-right"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm">
+                                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer" onclick="showScreen('staff-card')">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-gray-900">#99281</p>
+                                        <p class="text-xs text-gray-500">12.05.2024</p>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <p class="font-medium text-gray-900">ИП ТехноМир</p>
+                                        <p class="text-xs text-gray-400 font-mono">ООО «Запчасть-Опт»</p>
+                                    </td>
+                                    <td class="px-6 py-4"><p class="font-bold">14,200 ₽</p></td>
+                                    <td class="px-6 py-4">
+                                        <span class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-[10px] font-bold uppercase tracking-wide">В работе</span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button class="p-2 hover:bg-gray-200 rounded-lg transition-colors"><svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 4. КАРТОЧКА ВОЗВРАТА (СОТРУДНИК)
+        'staff-card': `
+            <div class="p-4 md:p-8 animate-screen h-full flex flex-col">
+                <div class="flex items-center gap-4 mb-6">
+                    <button onclick="showScreen('staff-list')" class="p-2 bg-white rounded-full border border-gray-200 shadow-sm hover:bg-gray-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
+                    <div>
+                        <div class="flex items-center gap-3">
+                            <h2 class="text-2xl font-bold">Возврат #99281</h2>
+                            <span class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-[10px] font-bold uppercase tracking-wide">В работе</span>
+                        </div>
+                        <p class="text-sm text-gray-500">Создан автоматически 12.05.2024</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-6 flex-1 overflow-y-auto">
+                    <div class="md:col-span-8 space-y-6">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                                <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-4 tracking-widest">Детали товара</h3>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Поставщик</span><span class="text-sm font-semibold italic">ООО «Запчасть-Опт»</span></div>
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Артикул</span><span class="text-sm font-mono font-bold">BOSCH-199-22</span></div>
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Марка</span><span class="text-sm font-semibold">Bosch</span></div>
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Кол-во / Цена</span><span class="text-sm font-semibold">1 шт. / 14,200 ₽</span></div>
+                                </div>
+                            </div>
+                            <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                                <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-4 tracking-widest">Клиент и Причина</h3>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Клиент</span><span class="text-sm font-semibold">ИП ТехноМир</span></div>
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">ID Заказа</span><span class="text-sm font-semibold underline">#ORD-55441</span></div>
+                                    <div class="flex justify-between border-b border-gray-50 pb-2"><span class="text-sm text-gray-500">Причина</span><span class="text-sm font-semibold text-red-500">Брак / Неисправность</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                            <h3 class="text-sm font-bold mb-4">Управление статусом</h3>
+                            <div class="flex flex-wrap gap-2">
+                                <button class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all flex items-center gap-2 shadow-md">Отправить поставщику</button>
+                                <button class="px-4 py-2 bg-orange-100 text-orange-700 rounded-xl text-xs font-bold">В сток</button>
+                                <button class="px-4 py-2 bg-green-100 text-green-700 rounded-xl text-xs font-bold">Согласован</button>
+                                <button class="px-4 py-2 bg-black text-white rounded-xl text-xs font-bold">В Архив</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                            <h3 class="text-[10px] font-bold text-gray-400 uppercase mb-4 tracking-widest">Прикрепленные файлы</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer group">
+                                    <div class="w-10 h-10 bg-green-100 text-green-600 rounded-xl flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                    </div>
+                                    <div class="overflow-hidden">
+                                        <p class="text-xs font-bold text-gray-900 truncate">Return_list.xls</p>
+                                        <p class="text-[10px] text-gray-400">Excel Document</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer group">
+                                    <div class="w-10 h-10 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                    </div>
+                                    <div class="overflow-hidden">
+                                        <p class="text-xs font-bold text-gray-900 truncate">Photo_01.jpg</p>
+                                        <p class="text-[10px] text-gray-400">Image Image</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer group">
+                                    <div class="w-10 h-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                                    </div>
+                                    <div class="overflow-hidden">
+                                        <p class="text-xs font-bold text-gray-900 truncate">UKD_Vendor.pdf</p>
+                                        <p class="text-[10px] text-gray-400">PDF Document</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-4 bg-white rounded-3xl border border-gray-100 shadow-sm flex flex-col h-[400px] md:h-full overflow-hidden">
+                        <div class="p-4 border-b border-gray-50 font-bold flex items-center gap-2">
+                             <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Чат с клиентом
+                        </div>
+                        <div class="flex-1 p-4 space-y-4 overflow-y-auto bg-gray-50/50">
+                            <div class="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm text-sm text-gray-700 border border-gray-100 mr-8">
+                                <p class="text-[10px] font-bold text-blue-500 mb-1 uppercase">Сотрудник (Вы)</p>
+                                Добрый день! Взяли в работу.
+                            </div>
+                        </div>
+                        <div class="p-4 border-t border-gray-50">
+                            <input type="text" placeholder="Сообщение..." class="w-full bg-gray-100 rounded-2xl px-4 py-3 text-sm outline-none">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 5. СОЗДАНИЕ ВОЗВРАТА
+        'create-manual': `
+            <div class="p-4 md:p-8 animate-screen h-full overflow-y-auto">
+                <div class="max-w-3xl mx-auto bg-white rounded-[32px] shadow-sm border border-gray-100 p-6 md:p-8">
+                    <h2 class="text-2xl font-bold mb-8 tracking-tight">Новый возврат (Ручное создание)</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div class="sm:col-span-2">
+                             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Поставщик</label>
+                             <select class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                                <option>Выберите поставщика...</option>
+                                <option>ООО «Запчасть-Опт»</option>
+                                <option>Bosch Russia</option>
+                             </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Клиент</label>
+                            <input type="text" placeholder="Наименование ИП или ООО" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">ID Заказа</label>
+                            <input type="text" placeholder="Например: #ORD-7721" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Артикул / Марка</label>
+                            <input type="text" placeholder="BOSCH-100 / Bosch" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Кол-во</label>
+                                <input type="number" placeholder="1 шт" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Цена (₽)</label>
+                                <input type="text" placeholder="0.00" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black">
+                            </div>
+                        </div>
+                        <div class="sm:col-span-2">
+                             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-2">Причина возврата</label>
+                             <textarea placeholder="Опишите проблему или укажите характер брака..." rows="3" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 border-none outline-none focus:ring-2 focus:ring-black"></textarea>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                             <div class="border-2 border-dashed border-gray-200 rounded-[28px] p-8 text-center hover:bg-gray-50 cursor-pointer transition-all">
+                                <p class="text-sm font-semibold">Нажмите или перетащите файлы</p>
+                                <p class="text-xs text-gray-400 mt-1">Фото товара, акты или накладные</p>
+                             </div>
+                        </div>
+                    </div>
+                    <div class="mt-8 flex flex-col sm:flex-row gap-4">
+                        <button class="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-bold shadow-lg hover:bg-black transition-all">Сохранить</button>
+                        <button onclick="showScreen('staff-list')" class="px-8 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all">Отмена</button>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 6. СПРАВОЧНИК ПОСТАВЩИКОВ
+        'suppliers': `
+            <div class="p-4 md:p-8 animate-screen">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-3xl font-bold tracking-tight">Поставщики</h2>
+                    <button class="px-4 py-2 bg-black text-white rounded-xl text-sm font-semibold shadow-md">+ Новый поставщик</button>
+                </div>
+                
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+                    <div class="overflow-x-auto table-container">
+                        <table class="w-full text-left min-w-[600px]">
+                            <thead class="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                <tr>
+                                    <th class="px-6 py-4">Название компании</th>
+                                    <th class="px-6 py-4">Контактный Email</th>
+                                    <th class="px-6 py-4">Активных возвратов</th>
+                                    <th class="px-6 py-4 text-right">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm">
+                                <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                                    <td class="px-6 py-4 flex items-center gap-3 font-bold">
+                                        <div class="w-8 h-8 bg-orange-50 text-orange-500 rounded-lg flex items-center justify-center">B</div>
+                                        Bosch Russia
+                                    </td>
+                                    <td class="px-6 py-4 italic text-gray-500">bosch-support@mail.ru</td>
+                                    <td class="px-6 py-4"><span class="font-bold text-blue-600">12</span></td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button class="text-blue-500 font-bold text-xs uppercase">Изменить</button>
+                                    </td>
+                                </tr>
+                                <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                                    <td class="px-6 py-4 flex items-center gap-3 font-bold">
+                                        <div class="w-8 h-8 bg-blue-50 text-blue-500 rounded-lg flex items-center justify-center">З</div>
+                                        ООО «Запчасть-Опт»
+                                    </td>
+                                    <td class="px-6 py-4 italic text-gray-500">orders@zapchast-opt.ru</td>
+                                    <td class="px-6 py-4"><span class="font-bold text-blue-600">8</span></td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button class="text-blue-500 font-bold text-xs uppercase">Изменить</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 7. УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
+        'users': `
+            <div class="p-4 md:p-8 animate-screen">
+                <h2 class="text-3xl font-bold mb-8 tracking-tight">Команда и Клиенты</h2>
+                <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto table-container">
+                        <table class="w-full min-w-[600px]">
+                            <thead class="bg-gray-50 border-b border-gray-100 uppercase text-[10px] font-bold text-gray-400 tracking-widest">
+                                <tr><th class="px-6 py-4 text-left">Имя / Контакт</th><th class="px-6 py-4 text-left">Роль</th><th class="px-6 py-4 text-left">Доступ</th><th class="px-6 py-4 text-right"></th></tr>
+                            </thead>
+                            <tbody class="text-sm">
+                                <tr class="border-b border-gray-50">
+                                    <td class="px-6 py-4 flex items-center gap-3">
+                                        <img src="https://images.unsplash.com/photo-1500649297466-74794c70acfc?w=100" class="w-8 h-8 rounded-full">
+                                        <div><p class="font-bold">Алексей Соколов</p><p class="text-xs text-gray-400">alex@vozvrat.ru</p></div>
+                                    </td>
+                                    <td class="px-6 py-4 font-semibold text-blue-600">Сотрудник</td>
+                                    <td class="px-6 py-4"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-bold">Полный</span></td>
+                                    <td class="px-6 py-4 text-right"><button class="text-gray-400 hover:text-black">•••</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 8. ЛК КЛИЕНТА
+        'client-list': `
+            <div class="p-4 md:p-8 animate-screen">
+                <div class="bg-gradient-to-r from-gray-900 to-gray-800 rounded-[32px] p-6 md:p-10 text-white mb-8 shadow-xl">
+                    <h2 class="text-2xl md:text-3xl font-bold tracking-tight">Привет, ИП ТехноМир</h2>
+                    <p class="text-gray-400 mt-2">Отслеживайте статусы ваших возвратов в реальном времени</p>
+                </div>
+                <h3 class="text-lg font-bold mb-4 px-2">Текущие заявки</h3>
+                <div onclick="showScreen('client-card')" class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:scale-[1.01] transition-all cursor-pointer">
+                    <div class="flex gap-6 items-center">
+                        <div class="w-12 h-12 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+                        <div>
+                            <p class="font-bold text-gray-900 text-lg">Заказ #99281</p>
+                            <p class="text-sm text-gray-500 italic">Bosch-199-22 / Диски</p>
+                        </div>
+                    </div>
+                    <div class="sm:text-right w-full sm:w-auto">
+                        <span class="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-[10px] font-bold uppercase">В работе</span>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 9. КАРТОЧКА КЛИЕНТА
+        'client-card': `
+            <div class="p-4 md:p-8 animate-screen h-full flex flex-col">
+                <div class="flex items-center gap-4 mb-8">
+                    <button onclick="showScreen('client-list')" class="p-2 bg-white rounded-full border border-gray-200"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
+                    <h2 class="text-2xl font-bold tracking-tight">Детали #99281</h2>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-8 flex-1 overflow-y-auto">
+                    <div class="md:col-span-7 space-y-6">
+                        <div class="bg-white p-6 rounded-[32px] border border-gray-100 shadow-sm">
+                            <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-6">Информация</h3>
+                            <div class="grid grid-cols-2 gap-y-4">
+                                <div><p class="text-xs text-gray-500">Товар</p><p class="font-bold font-mono">BOSCH-199-22</p></div>
+                                <div><p class="text-xs text-gray-500">Сумма</p><p class="font-bold">14,200 ₽</p></div>
+                                <div><p class="text-xs text-gray-500">Статус</p><span class="text-sm font-bold text-yellow-600 uppercase">В работе</span></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-blue-600 rounded-[32px] p-6 shadow-lg shadow-blue-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                </div>
+                                <div class="text-white">
+                                    <h4 class="font-bold text-sm">УКД Клиента (Корректировочный документ)</h4>
+                                    <p class="text-xs text-blue-100">Доступен для скачивания</p>
+                                </div>
+                            </div>
+                            <button class="w-full sm:w-auto px-6 py-3 bg-white text-blue-600 rounded-2xl font-bold text-xs hover:bg-blue-50 transition-all shadow-md flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                Скачать pdf
+                            </button>
+                        </div>
+                    </div>
+                    <div class="md:col-span-5 bg-white rounded-[32px] p-6 flex flex-col h-[400px] md:h-full border border-gray-100 shadow-sm">
+                        <h4 class="font-bold mb-4">Связь с менеджером</h4>
+                        <div class="flex-1 bg-gray-50 rounded-2xl p-4 mb-4 text-sm text-gray-500 italic">Ожидайте ответа менеджера...</div>
+                        <input type="text" placeholder="Задать вопрос..." class="w-full bg-gray-100 rounded-2xl px-4 py-3 text-sm ring-1 ring-gray-100 outline-none">
+                    </div>
+                </div>
+            </div>
+        `
+    };
+
+    function showScreen(screenId) {
+        const content = document.getElementById('main-content');
+        const sidebar = document.getElementById('main-sidebar');
+        const nav = document.getElementById('sidebar-nav');
+        const mobileHeader = document.getElementById('mobile-header');
+        
+        content.innerHTML = screens[screenId];
+        
+        if(screenId === 'auth') {
+            sidebar.classList.add('hidden');
+            mobileHeader.classList.add('hidden');
+        } else {
+            if (window.innerWidth >= 768) {
+                sidebar.classList.remove('hidden');
+                sidebar.classList.add('flex');
+            } else {
+                sidebar.classList.add('hidden');
+                mobileHeader.classList.remove('hidden');
+            }
+        }
+
+        const isClient = screenId.startsWith('client');
+        document.getElementById('user-name').innerText = isClient ? 'ИП ТехноМир' : 'Алексей Соколов';
+        document.getElementById('user-role').innerText = isClient ? 'Клиент' : 'Сотрудник';
+        document.getElementById('user-avatar').src = isClient 
+            ? "https://images.unsplash.com/photo-1560179707-f14e90ef3623?w=100&q=80" 
+            : "https://images.unsplash.com/photo-1500649297466-74794c70acfc?w=100";
+
+        // ЗАМЕНЕННЫЕ ИКОНКИ В МЕНЮ
+        const staffMenu = `
+            <button onclick="showScreen('statistics'); closeMobileSidebar()" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl ${screenId === 'statistics' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'} transition-all"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg> Статистика</button>
+            <button onclick="showScreen('staff-list'); closeMobileSidebar()" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl ${screenId === 'staff-list' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'} transition-all"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg> Возвраты</button>
+            <button onclick="showScreen('suppliers'); closeMobileSidebar()" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl ${screenId === 'suppliers' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1"/></svg> Поставщики</button>
+            <button onclick="showScreen('users'); closeMobileSidebar()" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl ${screenId === 'users' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197"/></svg> Пользователи</button>
+        `;
+        const clientMenu = `
+            <button onclick="showScreen('client-list'); closeMobileSidebar()" class="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl ${screenId === 'client-list' ? 'bg-black text-white' : 'text-gray-600 hover:bg-gray-100'}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> Главная</button>
+        `;
+        
+        nav.innerHTML = isClient ? clientMenu : staffMenu;
+        document.getElementById('main-content').scrollTo(0, 0);
+    }
+
+    function toggleSidebar() {
+        const sidebar = document.getElementById('main-sidebar');
+        if (sidebar.classList.contains('hidden')) {
+            sidebar.classList.remove('hidden');
+            sidebar.classList.add('flex', 'fixed', 'inset-0', 'w-full', 'h-full');
+        } else {
+            closeMobileSidebar();
+        }
+    }
+
+    function closeMobileSidebar() {
+        if (window.innerWidth < 768) {
+            const sidebar = document.getElementById('main-sidebar');
+            sidebar.classList.add('hidden');
+            sidebar.classList.remove('flex', 'fixed', 'inset-0', 'w-full', 'h-full');
+        }
+    }
+
+    window.addEventListener('resize', () => {
+        if (window.innerWidth >= 768) {
+            const sidebar = document.getElementById('main-sidebar');
+            sidebar.classList.remove('fixed', 'inset-0', 'w-full', 'h-full');
+            if (document.getElementById('user-name').innerText !== '') {
+                sidebar.classList.remove('hidden');
+                sidebar.classList.add('flex');
+            }
+        }
+    });
+
+    showScreen('auth');
+</script>
+</body>
+</html>
