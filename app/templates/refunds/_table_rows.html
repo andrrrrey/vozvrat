@@ -1,0 +1,42 @@
+{% for refund in refunds %}
+<tr class="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onclick="window.location='/refunds/{{ refund.id }}'">
+    <td class="px-6 py-4">
+        <p class="font-bold text-gray-900 mono text-sm">{{ refund.display_id }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ refund.created_at.strftime('%d.%m.%Y') }}</p>
+    </td>
+    <td class="px-6 py-4">
+        <p class="font-medium text-gray-800 text-sm">{{ refund.client_name }}</p>
+        {% if refund.supplier %}
+        <p class="text-xs text-gray-400 mono mt-0.5">{{ refund.supplier.name }}</p>
+        {% else %}
+        <p class="text-xs text-gray-300 mt-0.5">—</p>
+        {% endif %}
+    </td>
+    <td class="px-6 py-4">
+        {% if refund.items %}
+        <p class="font-semibold text-gray-900 text-sm">
+            {{ "{:,.0f}".format(refund.items | sum(attribute='price') * 1) }} ₽
+        </p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ refund.items | length }} поз.</p>
+        {% else %}
+        <p class="text-xs text-gray-300">—</p>
+        {% endif %}
+    </td>
+    <td class="px-6 py-4">
+        <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide {{ refund.status_color }}">
+            {{ refund.status_label }}
+        </span>
+    </td>
+    <td class="px-6 py-4">
+        <a href="/refunds/{{ refund.id }}" class="text-xs font-bold text-blue-500 uppercase hover:text-blue-700" onclick="event.stopPropagation()">
+            Открыть
+        </a>
+    </td>
+</tr>
+{% else %}
+<tr>
+    <td colspan="5" class="px-6 py-12 text-center text-gray-400 text-sm">
+        Возвратов не найдено
+    </td>
+</tr>
+{% endfor %}

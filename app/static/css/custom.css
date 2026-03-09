@@ -1,0 +1,15 @@
+body { font-family: 'Inter', sans-serif; }
+.mono { font-family: 'IBM Plex Mono', monospace; }
+
+@keyframes fadeInBlur {
+    0% { opacity: 0; filter: blur(10px); transform: scale(0.98); }
+    100% { opacity: 1; filter: blur(0px); transform: scale(1); }
+}
+.animate-screen { animation: fadeInBlur 0.5s ease-out both; }
+
+.table-container::-webkit-scrollbar { height: 4px; }
+.table-container::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+.htmx-request .htmx-indicator { opacity: 1; }
+.htmx-request.htmx-indicator { opacity: 1; }

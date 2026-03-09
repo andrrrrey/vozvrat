@@ -1,0 +1,68 @@
+<div id="status-section" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Управление статусом</p>
+    <div class="flex items-center gap-2 mb-4">
+        <span class="text-sm text-gray-600">Текущий:</span>
+        <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide {{ refund.status_color }}">
+            {{ refund.status_label }}
+        </span>
+    </div>
+    {% if user.role.value in ('admin', 'staff') %}
+    <div class="flex flex-wrap gap-2">
+        {% if refund.status.value != 'sent_to_supplier' %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "sent_to_supplier"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            hx-headers='{"Content-Type": "application/json"}'
+            class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-colors">
+            Отправить поставщику
+        </button>
+        {% endif %}
+        {% if refund.status.value not in ('stock',) %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "stock"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            hx-headers='{"Content-Type": "application/json"}'
+            class="px-4 py-2 bg-orange-100 text-orange-700 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors">
+            В сток
+        </button>
+        {% endif %}
+        {% if refund.status.value not in ('approved', 'completed') %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "approved"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            hx-headers='{"Content-Type": "application/json"}'
+            class="px-4 py-2 bg-green-100 text-green-700 rounded-xl text-xs font-bold hover:bg-green-200 transition-colors">
+            Согласован
+        </button>
+        {% endif %}
+        {% if refund.status.value not in ('in_progress',) %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "in_progress"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            hx-headers='{"Content-Type": "application/json"}'
+            class="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-xl text-xs font-bold hover:bg-yellow-200 transition-colors">
+            В работу
+        </button>
+        {% endif %}
+        {% if refund.status.value != 'archive' %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "archive"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            hx-headers='{"Content-Type": "application/json"}'
+            class="px-4 py-2 bg-black text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-colors">
+            В архив
+        </button>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>

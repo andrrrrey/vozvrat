@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Страница не найдена{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center h-full p-8 text-center">
+    <p class="text-8xl font-bold text-gray-200 mono">404</p>
+    <h1 class="text-xl font-bold text-gray-700 mt-4">Страница не найдена</h1>
+    <p class="text-sm text-gray-400 mt-2">Возможно, возврат удалён или у вас нет доступа.</p>
+    <a href="/" class="mt-6 px-5 py-3 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black transition-all">
+        На главную
+    </a>
+</div>
+{% endblock %}

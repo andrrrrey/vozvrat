@@ -1,0 +1,74 @@
+<div class="p-8">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-bold text-gray-900">
+            {% if target_user %}Изменить пользователя{% else %}Новый пользователь{% endif %}
+        </h2>
+        <button onclick="closeUserModal()" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    </div>
+
+    <form
+        {% if target_user %}
+        hx-put="/api/users/{{ target_user.id }}"
+        {% else %}
+        hx-post="/api/users"
+        {% endif %}
+        hx-on::after-request="if(event.detail.successful) { window.location.reload(); }"
+        class="space-y-4">
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Email *</label>
+            <input type="email" name="email" required value="{{ target_user.email if target_user else '' }}"
+                placeholder="user@company.ru"
+                class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+        </div>
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">
+                Полное имя *
+            </label>
+            <input type="text" name="full_name" required value="{{ target_user.full_name if target_user else '' }}"
+                placeholder="Иванов Иван Иванович"
+                class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+        </div>
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">
+                Пароль {% if target_user %}(оставьте пустым для сохранения){% else %}*{% endif %}
+            </label>
+            <input type="password" name="password" {% if not target_user %}required{% endif %}
+                placeholder="{% if target_user %}Новый пароль...{% else %}Минимум 6 символов{% endif %}"
+                class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+        </div>
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Роль</label>
+            <select name="role" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                <option value="staff" {% if target_user and target_user.role.value == 'staff' %}selected{% endif %}>Сотрудник</option>
+                <option value="admin" {% if target_user and target_user.role.value == 'admin' %}selected{% endif %}>Администратор</option>
+                <option value="client" {% if target_user and target_user.role.value == 'client' %}selected{% endif %}>Клиент</option>
+            </select>
+        </div>
+
+        {% if target_user %}
+        <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" name="is_active" value="true" {% if target_user.is_active %}checked{% endif %}
+                    class="rounded">
+                <span class="text-sm text-gray-700 font-medium">Активен</span>
+            </label>
+        </div>
+        {% endif %}
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit" class="flex-1 py-3 bg-gray-900 text-white rounded-2xl font-bold shadow-lg hover:bg-black transition-all text-sm">
+                {% if target_user %}Сохранить{% else %}Создать{% endif %}
+            </button>
+            <button type="button" onclick="closeUserModal()"
+                class="flex-none px-5 py-3 bg-gray-100 text-gray-600 rounded-2xl font-semibold hover:bg-gray-200 transition-all text-sm">
+                Отмена
+            </button>
+        </div>
+    </form>
+</div>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Вход — Vozvrat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+<body class="h-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center p-4">
+
+<div class="w-full max-w-md animate-screen">
+    <div class="bg-white/70 backdrop-blur-xl rounded-[32px] shadow-xl border border-white/50 p-8">
+        <!-- Logo -->
+        <div class="flex items-center gap-3 justify-center mb-8">
+            <div class="w-10 h-10 bg-black rounded-xl flex items-center justify-center">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"/></svg>
+            </div>
+            <span class="font-bold text-xl tracking-tight">VOZVRAT</span>
+        </div>
+
+        <div class="text-center mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">С возвращением</h2>
+            <p class="text-gray-500 text-sm mt-2">Войдите в систему Vozvrat</p>
+        </div>
+
+        <!-- Error message container -->
+        <div id="login-error" class="hidden mb-4 p-3 bg-red-50 text-red-600 rounded-2xl text-sm font-medium border border-red-100"></div>
+
+        <form id="login-form" class="space-y-4" onsubmit="handleLogin(event)">
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1 ml-1">Email</label>
+                <input type="email" name="email" required autocomplete="email"
+                    class="w-full px-4 py-3 rounded-2xl border-none bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition-all"
+                    placeholder="name@company.ru">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1 ml-1">Пароль</label>
+                <input type="password" name="password" required autocomplete="current-password"
+                    class="w-full px-4 py-3 rounded-2xl border-none bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition-all"
+                    placeholder="••••••••">
+            </div>
+            <button type="submit" id="login-btn"
+                class="w-full py-3 bg-gray-900 text-white rounded-2xl font-semibold hover:bg-black shadow-lg transition-all text-sm">
+                Войти в систему
+            </button>
+        </form>
+    </div>
+
+    <p class="text-center text-xs text-gray-400 mt-4">Vozvrat — Система управления возвратами</p>
+</div>
+
+<script>
+async function handleLogin(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = document.getElementById('login-btn');
+    const errorDiv = document.getElementById('login-error');
+
+    btn.textContent = 'Входим...';
+    btn.disabled = true;
+    errorDiv.classList.add('hidden');
+
+    const formData = new FormData(form);
+
+    try {
+        const resp = await fetch('/api/auth/login', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await resp.json();
+
+        if (resp.ok && data.success) {
+            if (data.role === 'client') {
+                window.location.href = '/client/refunds';
+            } else {
+                window.location.href = '/statistics';
+            }
+        } else {
+            errorDiv.textContent = data.detail || 'Неверный email или пароль';
+            errorDiv.classList.remove('hidden');
+            btn.textContent = 'Войти в систему';
+            btn.disabled = false;
+        }
+    } catch (err) {
+        errorDiv.textContent = 'Ошибка соединения с сервером';
+        errorDiv.classList.remove('hidden');
+        btn.textContent = 'Войти в систему';
+        btn.disabled = false;
+    }
+}
+</script>
+</body>
+</html>

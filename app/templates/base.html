@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{% block title %}Vozvrat{% endblock %} — Система управления возвратами</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/custom.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['IBM Plex Mono', 'monospace'] }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="h-full bg-gray-50 flex flex-col">
+
+<!-- Mobile Header -->
+<div id="mobile-header" class="md:hidden w-full bg-white border-b border-gray-200 p-4 flex justify-between items-center z-50 sticky top-0">
+    <div class="flex items-center gap-2">
+        <div class="w-7 h-7 bg-black rounded-lg flex items-center justify-center">
+            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"/></svg>
+        </div>
+        <span class="font-bold text-lg tracking-tight">VOZVRAT</span>
+    </div>
+    <button onclick="document.getElementById('main-sidebar').classList.toggle('hidden')" class="p-2 bg-gray-100 rounded-xl">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+</div>
+
+<div class="flex flex-1 overflow-hidden">
+    <!-- Sidebar -->
+    <aside id="main-sidebar" class="hidden md:flex flex-col w-64 bg-white/80 backdrop-blur-md border-r border-gray-200 shrink-0 fixed md:static top-0 left-0 h-full z-40">
+        <div class="p-6 flex-1 overflow-y-auto">
+            <div class="flex items-center gap-2 mb-8">
+                <div class="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"/></svg>
+                </div>
+                <h1 class="font-bold text-xl tracking-tight text-gray-900">VOZVRAT</h1>
+            </div>
+
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Навигация</p>
+            <nav class="space-y-1 text-sm font-medium">
+                {% if user.role.value in ('admin', 'staff') %}
+                <a href="/statistics" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path == '/statistics' %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Статистика
+                </a>
+                <a href="/refunds" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path.startswith('/refunds') %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    Возвраты
+                </a>
+                <a href="/suppliers" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path == '/suppliers' %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                    Поставщики
+                </a>
+                {% if user.role.value == 'admin' %}
+                <a href="/users" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path == '/users' %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    Пользователи
+                </a>
+                {% endif %}
+                {% else %}
+                <a href="/client/refunds" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path.startswith('/client') %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                    Мои возвраты
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+
+        <div class="p-4 border-t border-gray-100">
+            <div class="flex items-center gap-3 p-2">
+                <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">
+                    {{ user.full_name[0].upper() if user.full_name else 'U' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold text-gray-900 truncate">{{ user.full_name }}</p>
+                    <p class="text-[10px] text-gray-500 uppercase tracking-widest">
+                        {% if user.role.value == 'admin' %}Администратор
+                        {% elif user.role.value == 'staff' %}Сотрудник
+                        {% else %}Клиент{% endif %}
+                    </p>
+                </div>
+                <form action="/api/auth/logout" method="post">
+                    <button type="submit" title="Выйти" class="p-1 text-gray-400 hover:text-gray-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto bg-gray-50">
+        <!-- Toast notifications -->
+        <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<script>
+function showToast(message, type='success') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all ${type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// HTMX event handlers
+document.body.addEventListener('htmx:responseError', function(evt) {
+    showToast('Ошибка: ' + (evt.detail.error || 'Что-то пошло не так'), 'error');
+});
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
