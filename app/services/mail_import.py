@@ -100,6 +100,43 @@ def try_parse_xls(content: bytes) -> list[dict]:
         return []
 
 
+def _is_allowed_sender(from_header: str) -> bool:
+    """Check sender against MAIL_ALLOWED_SENDERS whitelist. Empty list = allow all."""
+    if not settings.MAIL_ALLOWED_SENDERS.strip():
+        return True
+    sender_addr = email.utils.parseaddr(from_header)[1].lower()
+    allowed = [s.strip().lower() for s in settings.MAIL_ALLOWED_SENDERS.split(",") if s.strip()]
+    return any(
+        sender_addr == rule or sender_addr.endswith("@" + rule)
+        for rule in allowed
+    )
+
+
+def _has_subject_keyword(subject: str) -> bool:
+    """Check subject contains at least one keyword. Empty list = allow all."""
+    if not settings.MAIL_SUBJECT_KEYWORDS.strip():
+        return True
+    keywords = [k.strip().lower() for k in settings.MAIL_SUBJECT_KEYWORDS.split(",") if k.strip()]
+    subj_lower = subject.lower()
+    return any(kw in subj_lower for kw in keywords)
+
+
+def _has_xls_attachment(msg: email.message.Message) -> bool:
+    """Return True if email has at least one XLS/XLSX attachment."""
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        if part.get("Content-Disposition") is None:
+            continue
+        filename = part.get_filename()
+        if not filename:
+            continue
+        filename_decoded = decode_str(filename).lower()
+        if filename_decoded.endswith((".xls", ".xlsx")):
+            return True
+    return False
+
+
 async def process_emails(db: AsyncSession) -> int:
     """Connect to IMAP, fetch unseen emails, create Refunds. Returns number processed."""
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
@@ -107,6 +144,7 @@ async def process_emails(db: AsyncSession) -> int:
         return 0
 
     processed = 0
+    skipped = 0
     try:
         conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
         conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
@@ -118,11 +156,16 @@ async def process_emails(db: AsyncSession) -> int:
 
         for msg_id in ids:
             try:
-                await _process_single_email(conn, msg_id, db)
-                processed += 1
+                accepted = await _process_single_email(conn, msg_id, db)
+                if accepted:
+                    processed += 1
+                else:
+                    skipped += 1
             except Exception as e:
                 logger.error(f"Error processing email {msg_id}: {e}", exc_info=True)
 
+        if skipped:
+            logger.info(f"Skipped {skipped} emails (did not pass filters)")
         conn.logout()
     except Exception as e:
         logger.error(f"IMAP connection error: {e}", exc_info=True)
@@ -130,7 +173,8 @@ async def process_emails(db: AsyncSession) -> int:
     return processed
 
 
-async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: AsyncSession) -> None:
+async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: AsyncSession) -> bool:
+    """Process one email. Returns True if refund was created, False if filtered out."""
     _, msg_data = conn.fetch(msg_id, "(RFC822)")
     raw = msg_data[0][1]
     msg = email.message_from_bytes(raw)
@@ -138,6 +182,23 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     subject = decode_str(msg.get("Subject", "Без темы"))
     from_header = decode_str(msg.get("From", ""))
     client_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
+
+    # --- Фильтрация ---
+    if not _is_allowed_sender(from_header):
+        logger.debug(f"Skipped (sender not in whitelist): from='{from_header}'")
+        conn.store(msg_id, "+FLAGS", "\\Seen")
+        return False
+
+    if not _has_subject_keyword(subject):
+        logger.debug(f"Skipped (no keyword in subject): subject='{subject}'")
+        conn.store(msg_id, "+FLAGS", "\\Seen")
+        return False
+
+    if settings.MAIL_REQUIRE_XLS and not _has_xls_attachment(msg):
+        logger.debug(f"Skipped (no XLS attachment): subject='{subject}' from='{from_header}'")
+        conn.store(msg_id, "+FLAGS", "\\Seen")
+        return False
+    # ------------------
 
     logger.info(f"Processing email: subject='{subject}' from='{from_header}'")
 
@@ -210,3 +271,4 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     await db.flush()
     conn.store(msg_id, "+FLAGS", "\\Seen")
     logger.info(f"Created refund {display_id} (id={refund.id}) from email")
+    return True
