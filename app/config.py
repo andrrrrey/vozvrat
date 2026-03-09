@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Ключевые слова в теме письма через запятую (пусто = без фильтра)
     # Пример: "возврат,refund,возвр"
     MAIL_SUBJECT_KEYWORDS: str = ""
+    # Максимум писем за один цикл проверки (0 = без ограничений)
+    MAIL_FETCH_LIMIT: int = 50
 
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 20

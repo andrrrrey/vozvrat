@@ -137,6 +137,25 @@ def _has_xls_attachment(msg: email.message.Message) -> bool:
     return False
 
 
+def _build_imap_search_criteria() -> str:
+    """Build IMAP SEARCH criteria using server-side subject filter when possible."""
+    keywords = []
+    if settings.MAIL_SUBJECT_KEYWORDS.strip():
+        keywords = [k.strip() for k in settings.MAIL_SUBJECT_KEYWORDS.split(",") if k.strip()]
+
+    if not keywords:
+        return "UNSEEN"
+
+    if len(keywords) == 1:
+        return f'UNSEEN SUBJECT "{keywords[0]}"'
+
+    # Build nested OR: (OR SUBJECT "k1" (OR SUBJECT "k2" SUBJECT "k3"))
+    chain = f'SUBJECT "{keywords[-1]}"'
+    for kw in reversed(keywords[:-1]):
+        chain = f'(OR SUBJECT "{kw}" {chain})'
+    return f"UNSEEN {chain}"
+
+
 async def process_emails(db: AsyncSession) -> int:
     """Connect to IMAP, fetch unseen emails, create Refunds. Returns number processed."""
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
@@ -150,9 +169,18 @@ async def process_emails(db: AsyncSession) -> int:
         conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
         conn.select(settings.MAIL_FOLDER)
 
-        _, message_ids = conn.search(None, "UNSEEN")
+        search_criteria = _build_imap_search_criteria()
+        _, message_ids = conn.search(None, search_criteria)
         ids = message_ids[0].split() if message_ids[0] else []
-        logger.info(f"Found {len(ids)} unseen emails")
+
+        limit = settings.MAIL_FETCH_LIMIT
+        total_found = len(ids)
+        if limit > 0 and total_found > limit:
+            # Take oldest first (lower IDs), leave the rest for next cycle
+            ids = ids[:limit]
+            logger.info(f"Found {total_found} unseen emails, processing first {limit} this cycle")
+        else:
+            logger.info(f"Found {total_found} unseen emails")
 
         for msg_id in ids:
             try:

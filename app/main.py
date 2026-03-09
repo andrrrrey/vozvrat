@@ -1,3 +1,4 @@
+import fcntl
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -19,6 +20,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+_scheduler_lock_fh = None
+
+
+def _try_acquire_scheduler_lock() -> bool:
+    """Try to get an exclusive lock so only one worker runs the scheduler."""
+    global _scheduler_lock_fh
+    try:
+        _scheduler_lock_fh = open("/tmp/vozvrat_scheduler.lock", "w")
+        fcntl.flock(_scheduler_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _scheduler_lock_fh.write(str(os.getpid()))
+        _scheduler_lock_fh.flush()
+        return True
+    except (IOError, OSError):
+        if _scheduler_lock_fh:
+            _scheduler_lock_fh.close()
+            _scheduler_lock_fh = None
+        return False
 
 
 async def mail_check_job():
@@ -41,16 +59,19 @@ async def lifespan(app: FastAPI):
     # Ensure uploads directory exists
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
-    # Start scheduler
-    scheduler.add_job(
-        mail_check_job,
-        trigger=IntervalTrigger(minutes=settings.MAIL_CHECK_INTERVAL_MINUTES),
-        id="mail_import",
-        replace_existing=True,
-        max_instances=1,
-    )
-    scheduler.start()
-    logger.info(f"Mail check scheduler started (every {settings.MAIL_CHECK_INTERVAL_MINUTES} min)")
+    # Start scheduler only in one worker (prevents duplicate jobs with multiple uvicorn workers)
+    if _try_acquire_scheduler_lock():
+        scheduler.add_job(
+            mail_check_job,
+            trigger=IntervalTrigger(minutes=settings.MAIL_CHECK_INTERVAL_MINUTES),
+            id="mail_import",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.start()
+        logger.info(f"Mail check scheduler started (pid={os.getpid()}, every {settings.MAIL_CHECK_INTERVAL_MINUTES} min)")
+    else:
+        logger.info(f"Scheduler already running in another worker (pid={os.getpid()}), skipping")
 
     yield
 
