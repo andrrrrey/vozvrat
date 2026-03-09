@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     MAIL_FOLDER: str = "INBOX"
     MAIL_CHECK_INTERVAL_MINUTES: int = 5
 
+    # Фильтрация входящих писем
+    # Принимать только письма с XLS/XLSX вложением (рекомендуется: true)
+    MAIL_REQUIRE_XLS: bool = True
+    # Разрешённые домены/адреса отправителей через запятую (пусто = все)
+    # Пример: "supplier.ru,example.com,specific@partner.ru"
+    MAIL_ALLOWED_SENDERS: str = ""
+    # Ключевые слова в теме письма через запятую (пусто = без фильтра)
+    # Пример: "возврат,refund,возвр"
+    MAIL_SUBJECT_KEYWORDS: str = ""
+
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 20
 
