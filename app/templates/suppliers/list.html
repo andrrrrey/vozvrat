@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Поставщики{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Поставщики</h1>
+            <p class="text-sm text-gray-500 mt-1">Справочник контрагентов</p>
+        </div>
+        <button onclick="openSupplierModal()"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Новый поставщик
+        </button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full">
+            <thead>
+                <tr class="bg-gray-50/50 border-b border-gray-100">
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Название компании</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Контактный Email</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Активных возвратов</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Статус</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for supplier in suppliers %}
+                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold"
+                                style="background: hsl({{ loop.index * 50 }}, 60%, 50%)">
+                                {{ supplier.name[0].upper() }}
+                            </div>
+                            <span class="font-semibold text-sm text-gray-900">{{ supplier.name }}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="italic text-gray-500 text-sm">{{ supplier.email }}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="font-bold text-blue-600 text-sm">{{ refund_counts.get(supplier.id, 0) }}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if supplier.is_active %}
+                        <span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-bold uppercase tracking-wide">Активен</span>
+                        {% else %}
+                        <span class="px-2.5 py-1 bg-gray-100 text-gray-500 rounded-lg text-[10px] font-bold uppercase tracking-wide">Неактивен</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        <button onclick="openSupplierModal({{ supplier.id }})"
+                            class="text-blue-500 font-bold text-xs uppercase hover:text-blue-700">
+                            Изменить
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-12 text-center text-gray-400 text-sm">
+                        Поставщики не найдены
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="supplier-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-[32px] shadow-xl w-full max-w-md">
+        <div id="modal-content">
+            <!-- Loaded via HTMX -->
+        </div>
+    </div>
+</div>
+
+<script>
+function openSupplierModal(supplierId) {
+    const modal = document.getElementById('supplier-modal');
+    const content = document.getElementById('modal-content');
+    const url = supplierId ? `/api/suppliers/form?supplier_id=${supplierId}` : '/api/suppliers/form';
+
+    fetch(url).then(r => r.text()).then(html => {
+        content.innerHTML = html;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    });
+}
+
+function closeSupplierModal() {
+    const modal = document.getElementById('supplier-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+document.getElementById('supplier-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSupplierModal();
+});
+
+document.addEventListener('htmx:afterRequest', function(e) {
+    if (e.detail.successful && e.detail.requestConfig?.verb === 'post') {
+        window.location.reload();
+    }
+});
+</script>
+{% endblock %}

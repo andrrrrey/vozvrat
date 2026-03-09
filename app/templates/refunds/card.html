@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Возврат {{ refund.display_id }}{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Back + Header -->
+    <div class="flex items-center gap-4 mb-6">
+        <a href="/refunds" class="w-9 h-9 flex items-center justify-center bg-white rounded-full border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
+            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <div class="flex-1">
+            <div class="flex items-center gap-3">
+                <h1 class="text-xl font-bold text-gray-900 mono">Возврат {{ refund.display_id }}</h1>
+                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide {{ refund.status_color }}">
+                    {{ refund.status_label }}
+                </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">
+                {% if refund.source.value == 'email' %}
+                Создан автоматически из почты
+                {% else %}
+                Создан вручную
+                {% endif %}
+                {{ refund.created_at.strftime('%d.%m.%Y в %H:%M') }}
+                {% if refund.created_by %}
+                сотрудником {{ refund.created_by.full_name }}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Grid Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left: Main Content (8 cols) -->
+        <div class="lg:col-span-8 space-y-4">
+            <!-- Details Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Product Details -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Детали товара</p>
+                    {% if refund.items %}
+                    {% for item in refund.items %}
+                    <div class="{% if not loop.first %}mt-3 pt-3 border-t border-gray-100{% endif %}">
+                        {% if refund.supplier %}
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Поставщик</span>
+                            <span class="font-medium text-gray-700">{{ refund.supplier.name }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Артикул</span>
+                            <span class="font-medium mono text-gray-900">{{ item.article }}</span>
+                        </div>
+                        {% if item.brand %}
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Марка</span>
+                            <span class="font-medium text-gray-700">{{ item.brand }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Количество</span>
+                            <span class="font-medium text-gray-700">{{ item.quantity }} шт.</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-400">Цена</span>
+                            <span class="font-bold text-gray-900">{{ "{:,.2f}".format(item.price) }} ₽</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <p class="text-xs text-gray-400">Позиции не указаны</p>
+                    {% endif %}
+                </div>
+
+                <!-- Client & Reason -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Клиент и причина</p>
+                    <div class="flex justify-between text-xs mb-2">
+                        <span class="text-gray-400">Клиент</span>
+                        <span class="font-medium text-gray-700">{{ refund.client_name }}</span>
+                    </div>
+                    {% if refund.order_id %}
+                    <div class="flex justify-between text-xs mb-2">
+                        <span class="text-gray-400">ID Заказа</span>
+                        <span class="font-medium mono text-gray-700">{{ refund.order_id }}</span>
+                    </div>
+                    {% endif %}
+                    {% if refund.email_from %}
+                    <div class="flex justify-between text-xs mb-2">
+                        <span class="text-gray-400">Email отправителя</span>
+                        <span class="font-medium text-gray-600 text-right ml-2 truncate max-w-[140px]">{{ refund.email_from }}</span>
+                    </div>
+                    {% endif %}
+                    {% if refund.reason %}
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Причина возврата</p>
+                        <p class="text-xs text-red-600 font-medium">{{ refund.reason }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Status Management -->
+            {% include "refunds/_status_section.html" %}
+
+            <!-- Files -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Прикреплённые файлы</p>
+                </div>
+
+                <div id="files-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% include "refunds/_files_list.html" %}
+                </div>
+
+                <!-- Upload zone -->
+                {% if user.role.value in ('admin', 'staff') %}
+                <div class="mt-4">
+                    <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
+                        <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
+                        <p class="text-[10px] text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG до {{ settings.MAX_UPLOAD_SIZE_MB if settings else 20 }} МБ</p>
+                        <input type="file" name="file" class="hidden"
+                            hx-post="/api/files/upload/{{ refund.id }}"
+                            hx-encoding="multipart/form-data"
+                            hx-target="#files-list"
+                            hx-swap="innerHTML"
+                            hx-trigger="change"
+                            onchange="this.closest('form') && this.closest('form').requestSubmit()">
+                    </label>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Right: Chat (4 cols) -->
+        <div class="lg:col-span-4">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-4">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex-1">Чат с клиентом</p>
+                    <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                </div>
+
+                <div class="flex-1 min-h-[200px] flex items-center justify-center bg-gray-50 rounded-xl mb-4">
+                    <p class="text-xs text-gray-400 text-center px-4">Сообщений пока нет</p>
+                </div>
+
+                <div class="relative">
+                    <input type="text" disabled placeholder="Реализуется на этапе 2..."
+                        class="w-full bg-gray-50 rounded-2xl px-4 py-3 text-xs ring-1 ring-gray-200 text-gray-400 cursor-not-allowed">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle file upload via HTMX with input file
+document.addEventListener('change', function(e) {
+    if (e.target.type === 'file' && e.target.name === 'file') {
+        const input = e.target;
+        const file = input.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/api/files/upload/{{ refund.id }}', {
+            method: 'POST',
+            body: formData,
+        })
+        .then(r => r.text())
+        .then(html => {
+            document.getElementById('files-list').innerHTML = html;
+            input.value = '';
+            if (window.showToast) showToast('Файл загружен успешно');
+        })
+        .catch(() => {
+            if (window.showToast) showToast('Ошибка загрузки файла', 'error');
+        });
+    }
+});
+</script>
+{% endblock %}

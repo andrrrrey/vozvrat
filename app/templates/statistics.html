@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Статистика{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-gray-900">Статистика</h1>
+        <p class="text-sm text-gray-500 mt-1">Общие показатели системы возвратов</p>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">В работе</p>
+            <p class="text-3xl font-bold text-gray-900">{{ in_progress }}</p>
+            <p class="text-xs text-yellow-600 mt-1 font-medium">Активные возвраты</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Новые (Mail)</p>
+            <p class="text-3xl font-bold text-gray-900">{{ new_from_mail }}</p>
+            <p class="text-xs text-blue-600 mt-1 font-medium">Из почты</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Ожидают УКД</p>
+            <p class="text-3xl font-bold text-gray-900">{{ awaiting_ukd }}</p>
+            <p class="text-xs text-orange-600 mt-1 font-medium">Без документа</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Архив</p>
+            <p class="text-3xl font-bold text-gray-900">{{ archive_count }}</p>
+            <p class="text-xs text-gray-500 mt-1 font-medium">Завершённые</p>
+        </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Быстрые действия</p>
+        <div class="flex flex-wrap gap-3">
+            <a href="/refunds/create" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-md transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Создать возврат
+            </a>
+            <a href="/refunds" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-2xl text-sm font-semibold hover:bg-gray-200 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                Все возвраты
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

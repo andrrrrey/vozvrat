@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Пользователи{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Команда и Клиенты</h1>
+            <p class="text-sm text-gray-500 mt-1">Управление пользователями системы</p>
+        </div>
+        <button onclick="openUserModal()"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Новый пользователь
+        </button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full">
+            <thead>
+                <tr class="bg-gray-50/50 border-b border-gray-100">
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Имя / Контакт</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Роль</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Доступ</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
+                                {{ u.full_name[0].upper() if u.full_name else 'U' }}
+                            </div>
+                            <div>
+                                <p class="font-semibold text-sm text-gray-900">{{ u.full_name }}</p>
+                                <p class="text-xs text-gray-400">{{ u.email }}</p>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if u.role.value == 'admin' %}
+                        <span class="text-purple-600 font-semibold text-sm">Администратор</span>
+                        {% elif u.role.value == 'staff' %}
+                        <span class="text-blue-600 font-semibold text-sm">Сотрудник</span>
+                        {% else %}
+                        <span class="text-green-600 font-semibold text-sm">Клиент</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if u.role.value in ('admin', 'staff') %}
+                        <span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-bold uppercase tracking-wide">Полный</span>
+                        {% else %}
+                        <span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-[10px] font-bold uppercase tracking-wide">Ограничен</span>
+                        {% endif %}
+                        {% if not u.is_active %}
+                        <span class="ml-1 px-2.5 py-1 bg-red-100 text-red-500 rounded-lg text-[10px] font-bold uppercase tracking-wide">Неактивен</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <button onclick="openUserModal({{ u.id }})"
+                                class="text-blue-500 font-bold text-xs uppercase hover:text-blue-700">
+                                Изменить
+                            </button>
+                            {% if u.id != user.id and u.is_active %}
+                            <button onclick="deactivateUser({{ u.id }})"
+                                class="text-red-400 font-bold text-xs uppercase hover:text-red-600">
+                                Деактивировать
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="px-6 py-12 text-center text-gray-400 text-sm">
+                        Пользователи не найдены
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="user-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-[32px] shadow-xl w-full max-w-md">
+        <div id="user-modal-content"></div>
+    </div>
+</div>
+
+<script>
+function openUserModal(userId) {
+    const modal = document.getElementById('user-modal');
+    const content = document.getElementById('user-modal-content');
+    const url = userId ? `/api/users/form?user_id=${userId}` : '/api/users/form';
+
+    fetch(url).then(r => r.text()).then(html => {
+        content.innerHTML = html;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    });
+}
+
+function closeUserModal() {
+    const modal = document.getElementById('user-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+async function deactivateUser(userId) {
+    if (!confirm('Деактивировать пользователя?')) return;
+    const resp = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+    if (resp.ok) {
+        window.location.reload();
+    } else {
+        const data = await resp.json();
+        alert(data.detail || 'Ошибка');
+    }
+}
+
+document.getElementById('user-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeUserModal();
+});
+</script>
+{% endblock %}

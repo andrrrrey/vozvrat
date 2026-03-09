@@ -1,0 +1,54 @@
+<div class="p-8">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-lg font-bold text-gray-900">
+            {% if supplier %}Изменить поставщика{% else %}Новый поставщик{% endif %}
+        </h2>
+        <button onclick="closeSupplierModal()" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    </div>
+
+    <form
+        {% if supplier %}
+        hx-put="/api/suppliers/{{ supplier.id }}"
+        {% else %}
+        hx-post="/api/suppliers"
+        {% endif %}
+        hx-on::after-request="if(event.detail.successful) { window.location.reload(); }"
+        class="space-y-4">
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Название компании *</label>
+            <input type="text" name="name" required value="{{ supplier.name if supplier else '' }}"
+                placeholder="ООО Запчасть-Опт"
+                class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+        </div>
+
+        <div>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Контактный Email *</label>
+            <input type="email" name="email" required value="{{ supplier.email if supplier else '' }}"
+                placeholder="supplier@company.ru"
+                class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+        </div>
+
+        {% if supplier %}
+        <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" name="is_active" value="true" {% if supplier.is_active %}checked{% endif %}
+                    class="rounded">
+                <span class="text-sm text-gray-700 font-medium">Активен</span>
+            </label>
+        </div>
+        {% endif %}
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit" class="flex-1 py-3 bg-gray-900 text-white rounded-2xl font-bold shadow-lg hover:bg-black transition-all text-sm">
+                {% if supplier %}Сохранить{% else %}Создать{% endif %}
+            </button>
+            <button type="button" onclick="closeSupplierModal()"
+                class="flex-none px-5 py-3 bg-gray-100 text-gray-600 rounded-2xl font-semibold hover:bg-gray-200 transition-all text-sm">
+                Отмена
+            </button>
+        </div>
+    </form>
+</div>
