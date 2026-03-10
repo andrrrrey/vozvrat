@@ -184,11 +184,54 @@ def get_email_body_text(msg: email.message.Message) -> str:
     return "\n".join(text_parts)
 
 
+def _parse_freeform_item(text: str) -> dict:
+    """
+    Fallback: extract article / description / quantity from unstructured text lines.
+    Handles patterns like: "JF56325FP  Фильтр воздушный  12шт"
+    Article is a Latin-letter + digit code (e.g. JF56325FP, LF3000, 1987432031).
+    """
+    result = {}
+
+    # Quantity: digits immediately followed by "шт" (case-insensitive)
+    qty_match = re.search(r'(\d+)\s*шт', text, re.IGNORECASE)
+    if qty_match:
+        result["quantity"] = int(qty_match.group(1))
+
+    # Article: standalone alphanumeric code with at least one Latin letter and one digit,
+    # total length 4–25. Excludes purely Cyrillic words.
+    article_pattern = re.compile(
+        r'\b([A-Z0-9]{4,25})\b',
+        re.IGNORECASE,
+    )
+    for m in article_pattern.finditer(text):
+        candidate = m.group(1)
+        # Must contain at least one Latin letter AND at least one digit
+        has_latin = bool(re.search(r'[A-Za-z]', candidate))
+        has_digit = bool(re.search(r'\d', candidate))
+        if has_latin and has_digit:
+            result["article"] = candidate.upper()
+            break
+
+    # Description: Cyrillic words between the article code and the quantity marker
+    if result.get("article") and result.get("quantity"):
+        art = re.escape(result["article"])
+        qty = str(result["quantity"])
+        desc_pat = re.compile(
+            rf'\b{art}\b\s+([\u0400-\u04FF][\u0400-\u04FF\s\-]+?)\s+{qty}\s*шт',
+            re.IGNORECASE,
+        )
+        dm = desc_pat.search(text)
+        if dm:
+            result["description"] = re.sub(r'\s+', ' ', dm.group(1)).strip()
+
+    return result
+
+
 def parse_body_data(text: str) -> dict:
     """
     Parse structured refund data from email body text.
     Returns dict with keys: article, brand, quantity, description, reason, client_name, order_id, comment.
-    Handles both multiline and single-line email bodies.
+    Handles both labelled (Field: Value) and free-form email bodies.
     """
     # Lookahead: stop before any known field label or end of string
     _STOP = (
@@ -245,6 +288,16 @@ def parse_body_data(text: str) -> dict:
         text,
     )
 
+    # Fallback: free-form parsing when structured labels are absent
+    if not result.get("article"):
+        freeform = _parse_freeform_item(text)
+        if freeform.get("article"):
+            result["article"] = freeform["article"]
+            if not result.get("description"):
+                result["description"] = freeform.get("description")
+            if result["quantity"] == 1 and freeform.get("quantity"):
+                result["quantity"] = freeform["quantity"]
+
     return result
 
 
@@ -274,7 +327,8 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         sender_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
 
         body_text = get_email_body_text(msg)
-        parsed = parse_body_data(body_text)
+        # Include subject in parsed text so the free-form extractor can use it
+        parsed = parse_body_data(f"{subject}\n{body_text}")
 
         client_name = parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
 
@@ -322,11 +376,13 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
                 continue
-            if part.get("Content-Disposition") is None:
-                continue
-
+            # Accept attachments regardless of Content-Disposition value —
+            # some clients send images as inline or omit the header entirely.
             filename = part.get_filename()
             if not filename:
+                continue
+            # Skip plain-text / HTML body parts that somehow have a name param
+            if part.get_content_type() in ("text/plain", "text/html"):
                 continue
 
             filename = decode_str(filename)
@@ -450,7 +506,8 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     # ------------------
 
     body_text = get_email_body_text(msg)
-    parsed = parse_body_data(body_text)
+    # Include subject in parsed text so the free-form extractor can use it
+    parsed = parse_body_data(f"{subject}\n{body_text}")
 
     client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
 
@@ -498,11 +555,13 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
             continue
-        if part.get("Content-Disposition") is None:
-            continue
-
+        # Accept attachments regardless of Content-Disposition value —
+        # some clients send images as inline or omit the header entirely.
         filename = part.get_filename()
         if not filename:
+            continue
+        # Skip plain-text / HTML body parts that somehow have a name param
+        if part.get_content_type() in ("text/plain", "text/html"):
             continue
 
         filename = decode_str(filename)
