@@ -54,7 +54,7 @@ def build_refund_filter(query, status: Optional[str], supplier_id: Optional[int]
 async def list_refunds(
     request: Request,
     status: Optional[str] = None,
-    supplier_id: Optional[int] = None,
+    supplier_id: Optional[str] = None,
     client_name: Optional[str] = None,
     date_from: Optional[str] = None,
     page: int = 1,
@@ -62,6 +62,8 @@ async def list_refunds(
 ):
     user = await get_current_user(request, db)
     per_page = 20
+
+    supplier_id_int: Optional[int] = int(supplier_id) if supplier_id and supplier_id.strip().isdigit() else None
 
     query = select(Refund).options(
         selectinload(Refund.supplier),
@@ -71,7 +73,7 @@ async def list_refunds(
     if user.role.value == "client":
         query = query.where(Refund.client_user_id == user.id)
 
-    query = build_refund_filter(query, status, supplier_id, client_name, date_from)
+    query = build_refund_filter(query, status, supplier_id_int, client_name, date_from)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -87,7 +89,7 @@ async def list_refunds(
 async def refunds_table_partial(
     request: Request,
     status: Optional[str] = None,
-    supplier_id: Optional[int] = None,
+    supplier_id: Optional[str] = None,
     client_name: Optional[str] = None,
     date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -100,6 +102,8 @@ async def refunds_table_partial(
 
     user = await get_current_user(request, db)
 
+    supplier_id_int: Optional[int] = int(supplier_id) if supplier_id and supplier_id.strip().isdigit() else None
+
     query = select(Refund).options(
         selectinload(Refund.supplier),
         selectinload(Refund.items),
@@ -108,7 +112,7 @@ async def refunds_table_partial(
     if user.role.value == "client":
         query = query.where(Refund.client_user_id == user.id)
 
-    query = build_refund_filter(query, status, supplier_id, client_name, date)
+    query = build_refund_filter(query, status, supplier_id_int, client_name, date)
     query = query.limit(20)
 
     result = await db.execute(query)
