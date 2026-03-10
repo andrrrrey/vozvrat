@@ -225,6 +225,32 @@ async def get_refund(
     return refund
 
 
+@router.post("/from-email/{uid}")
+async def create_refund_from_email(
+    uid: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a refund from a specific email identified by IMAP UID."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from app.services.mail_import import create_refund_from_uid
+    try:
+        refund = await create_refund_from_uid(uid, db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to create refund from email uid={uid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Не удалось создать заявку из письма")
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"/refunds/{refund.id}", status_code=302)
+
+
 @router.post("/{refund_id}/status")
 async def update_status(
     refund_id: int,

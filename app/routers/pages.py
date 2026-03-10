@@ -264,6 +264,36 @@ async def users_page(request: Request, db: AsyncSession = Depends(get_db)):
     })
 
 
+@router.get("/emails")
+async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value not in ("admin", "staff"):
+        return RedirectResponse(url="/refunds", status_code=302)
+
+    from app.services.mail_reader import fetch_recent_emails
+    from app.config import settings as cfg
+
+    imap_configured = bool(cfg.MAIL_LOGIN and cfg.MAIL_PASSWORD)
+    emails = []
+    fetch_error = None
+    if imap_configured:
+        try:
+            emails = fetch_recent_emails(limit=20)
+        except Exception as e:
+            logger.error(f"Failed to fetch emails for viewer: {e}", exc_info=True)
+            fetch_error = str(e)
+
+    return templates.TemplateResponse("emails/list.html", {
+        "request": request,
+        "user": user,
+        "emails": emails,
+        "imap_configured": imap_configured,
+        "fetch_error": fetch_error,
+    })
+
+
 @router.get("/client/refunds")
 async def client_refunds_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = await get_optional_user(request, db)
