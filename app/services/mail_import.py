@@ -2,6 +2,7 @@ import imaplib
 import email
 import logging
 import os
+import re
 import uuid
 import io
 from email.header import decode_header
@@ -168,6 +169,85 @@ def _build_imap_search_criteria() -> str:
     return f"UNSEEN {chain}"
 
 
+def get_email_body_text(msg: email.message.Message) -> str:
+    """Extract plain text body from email message."""
+    text_parts = []
+    for part in msg.walk():
+        if part.get_content_type() == "text/plain" and part.get_content_disposition() != "attachment":
+            payload = part.get_payload(decode=True)
+            if payload:
+                charset = part.get_content_charset() or "utf-8"
+                try:
+                    text_parts.append(payload.decode(charset, errors="replace"))
+                except Exception:
+                    text_parts.append(payload.decode("utf-8", errors="replace"))
+    return "\n".join(text_parts)
+
+
+def parse_body_data(text: str) -> dict:
+    """
+    Parse structured refund data from email body text.
+    Returns dict with keys: article, brand, quantity, description, reason, client_name, order_id, comment.
+    Handles both multiline and single-line email bodies.
+    """
+    # Lookahead: stop before any known field label or end of string
+    _STOP = (
+        r'(?=\s*(?:'
+        r'[Аа]ртикул|[Аа]рт\.|[Пп]роизводитель|[Бб]ренд|[Кк]оличество|[Кк]ол.?во'
+        r'|[Тт]овар|[Нн]аименование|[Пп]ричина|[Кк]омментарий'
+        r'|[Нн]омер\s+(?:входящего|заказа)|[Кк]омпания|[Оо]рганизация'
+        r'|[Дд]ата|Тел\.|www\.'
+        r')|\Z)'
+    )
+
+    def _find(patterns: list[str], txt: str) -> Optional[str]:
+        for pattern in patterns:
+            m = re.search(pattern, txt, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+            if m:
+                val = m.group(1).strip()
+                val = re.sub(r'[\s\u00a0]+', ' ', val).strip()
+                return val if val else None
+        return None
+
+    result = {}
+
+    result["article"] = _find(
+        [rf'[Аа]ртикул\s*:\s*(.+?){_STOP}', rf'[Аа]рт\.\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    result["brand"] = _find(
+        [rf'[Пп]роизводитель\s*:\s*(.+?){_STOP}', rf'[Бб]ренд\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    qty_str = _find(
+        [r'[Кк]оличество\s*:\s*(\d+)', r'[Кк]ол-?во\s*:\s*(\d+)'],
+        text,
+    )
+    result["quantity"] = int(qty_str) if qty_str and qty_str.isdigit() else 1
+    result["description"] = _find(
+        [rf'[Тт]овар\s*:\s*(.+?){_STOP}', rf'[Нн]аименование\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    result["reason"] = _find(
+        [rf'[Пп]ричина возврата\s*:\s*(.+?){_STOP}', rf'[Пп]ричина\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    result["comment"] = _find(
+        [rf'[Кк]омментарий\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    result["order_id"] = _find(
+        [rf'[Нн]омер входящего документа\s*:\s*(.+?){_STOP}', rf'[Нн]омер заказа\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+    result["client_name"] = _find(
+        [rf'[Кк]омпания\s+(.+?){_STOP}', rf'[Оо]рганизация\s*:\s*(.+?){_STOP}'],
+        text,
+    )
+
+    return result
+
+
 async def create_refund_from_uid(uid: str, db: AsyncSession):
     """
     Fetch a specific email by IMAP UID and create a Refund from it.
@@ -191,7 +271,16 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
 
         subject = decode_str(msg.get("Subject", "Без темы"))
         from_header = decode_str(msg.get("From", ""))
-        client_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
+        sender_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
+
+        body_text = get_email_body_text(msg)
+        parsed = parse_body_data(body_text)
+
+        client_name = parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
+
+        reason = parsed.get("reason")
+        if parsed.get("comment"):
+            reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
 
         logger.info(f"Creating refund from email UID={uid}: subject='{subject}' from='{from_header}'")
 
@@ -201,7 +290,9 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             display_id=display_id,
             status=RefundStatus.received,
             source=RefundSource.email,
-            client_name=client_name or from_header or "Неизвестный отправитель",
+            client_name=client_name[:255],
+            order_id=parsed.get("order_id"),
+            reason=reason,
             email_subject=subject[:500],
             email_from=from_header[:255],
         )
@@ -213,6 +304,20 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         refund_dir.mkdir(parents=True, exist_ok=True)
 
         xls_items_created = False
+
+        # Create item from body text if article was found
+        if parsed.get("article") and not xls_items_created:
+            item = RefundItem(
+                refund_id=refund.id,
+                article=parsed["article"],
+                brand=parsed.get("brand"),
+                quantity=parsed.get("quantity", 1),
+                price=0,
+                description=parsed.get("description"),
+            )
+            db.add(item)
+            xls_items_created = True
+            logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
 
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
@@ -344,6 +449,15 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
         return False
     # ------------------
 
+    body_text = get_email_body_text(msg)
+    parsed = parse_body_data(body_text)
+
+    client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
+
+    reason = parsed.get("reason")
+    if parsed.get("comment"):
+        reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
+
     logger.info(f"Processing email: subject='{subject}' from='{from_header}'")
 
     display_id = await generate_display_id(db)
@@ -352,7 +466,9 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
         display_id=display_id,
         status=RefundStatus.received,
         source=RefundSource.email,
-        client_name=client_name or from_header or "Неизвестный отправитель",
+        client_name=client_name[:255],
+        order_id=parsed.get("order_id"),
+        reason=reason,
         email_subject=subject[:500],
         email_from=from_header[:255],
     )
@@ -364,6 +480,20 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     refund_dir.mkdir(parents=True, exist_ok=True)
 
     xls_items_created = False
+
+    # Create item from body text if article was found
+    if parsed.get("article"):
+        item = RefundItem(
+            refund_id=refund.id,
+            article=parsed["article"],
+            brand=parsed.get("brand"),
+            quantity=parsed.get("quantity", 1),
+            price=0,
+            description=parsed.get("description"),
+        )
+        db.add(item)
+        xls_items_created = True
+        logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
 
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
