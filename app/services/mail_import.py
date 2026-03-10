@@ -38,9 +38,9 @@ def decode_str(s: str) -> str:
 
 async def generate_display_id(db: AsyncSession) -> str:
     """Generate next display ID like #10001, #10002..."""
-    result = await db.execute(select(func.count(Refund.id)))
-    count = result.scalar() or 0
-    return f"#{10001 + count}"
+    result = await db.execute(select(func.max(Refund.id)))
+    max_id = result.scalar() or 0
+    return f"#{10001 + max_id}"
 
 
 def try_parse_xls(content: bytes) -> list[dict]:
@@ -146,12 +146,24 @@ def _build_imap_search_criteria() -> str:
     if not keywords:
         return "UNSEEN"
 
-    if len(keywords) == 1:
-        return f'UNSEEN SUBJECT "{keywords[0]}"'
+    # IMAP SEARCH only supports ASCII; skip non-ASCII keywords for server-side filtering
+    ascii_keywords = []
+    for kw in keywords:
+        try:
+            kw.encode("ascii")
+            ascii_keywords.append(kw)
+        except UnicodeEncodeError:
+            pass
+
+    if not ascii_keywords:
+        return "UNSEEN"
+
+    if len(ascii_keywords) == 1:
+        return f'UNSEEN SUBJECT "{ascii_keywords[0]}"'
 
     # Build nested OR: (OR SUBJECT "k1" (OR SUBJECT "k2" SUBJECT "k3"))
-    chain = f'SUBJECT "{keywords[-1]}"'
-    for kw in reversed(keywords[:-1]):
+    chain = f'SUBJECT "{ascii_keywords[-1]}"'
+    for kw in reversed(ascii_keywords[:-1]):
         chain = f'(OR SUBJECT "{kw}" {chain})'
     return f"UNSEEN {chain}"
 
