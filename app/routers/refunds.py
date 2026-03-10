@@ -251,6 +251,28 @@ async def create_refund_from_email(
     return RedirectResponse(url=f"/refunds/{refund.id}", status_code=302)
 
 
+@router.delete("/{refund_id}")
+async def delete_refund(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Только администратор может удалять возвраты")
+
+    result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = result.scalar_one_or_none()
+
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    await db.delete(refund)
+    await db.flush()
+
+    return JSONResponse({"ok": True})
+
+
 @router.post("/{refund_id}/status")
 async def update_status(
     refund_id: int,
