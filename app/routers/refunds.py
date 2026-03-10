@@ -231,8 +231,8 @@ async def update_status(
     if user.role.value not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
-    body = await request.json()
-    new_status_str = body.get("status", "")
+    form = await request.form()
+    new_status_str = str(form.get("status", ""))
 
     try:
         new_status = RefundStatus(new_status_str)
