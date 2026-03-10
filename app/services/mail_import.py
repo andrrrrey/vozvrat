@@ -156,6 +156,110 @@ def _build_imap_search_criteria() -> str:
     return f"UNSEEN {chain}"
 
 
+async def create_refund_from_uid(uid: str, db: AsyncSession):
+    """
+    Fetch a specific email by IMAP UID and create a Refund from it.
+    Skips all auto-import filters since the admin is explicitly choosing this email.
+    Returns the created Refund object or raises an exception.
+    """
+    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+        raise RuntimeError("IMAP credentials not configured")
+
+    conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
+    conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
+    conn.select(settings.MAIL_FOLDER)
+
+    try:
+        _, msg_data = conn.uid("FETCH", uid.encode(), "(RFC822)")
+        if not msg_data or not msg_data[0]:
+            raise ValueError(f"Email with UID {uid} not found")
+
+        raw = msg_data[0][1]
+        msg = email.message_from_bytes(raw)
+
+        subject = decode_str(msg.get("Subject", "Без темы"))
+        from_header = decode_str(msg.get("From", ""))
+        client_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
+
+        logger.info(f"Creating refund from email UID={uid}: subject='{subject}' from='{from_header}'")
+
+        display_id = await generate_display_id(db)
+
+        refund = Refund(
+            display_id=display_id,
+            status=RefundStatus.received,
+            source=RefundSource.email,
+            client_name=client_name or from_header or "Неизвестный отправитель",
+            email_subject=subject[:500],
+            email_from=from_header[:255],
+        )
+        db.add(refund)
+        await db.flush()
+        await db.refresh(refund)
+
+        refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
+        refund_dir.mkdir(parents=True, exist_ok=True)
+
+        xls_items_created = False
+
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+            if part.get("Content-Disposition") is None:
+                continue
+
+            filename = part.get_filename()
+            if not filename:
+                continue
+
+            filename = decode_str(filename)
+            content = part.get_payload(decode=True)
+            if not content:
+                continue
+
+            file_type = detect_file_type(filename)
+            unique_name = f"{uuid.uuid4().hex}_{filename}"
+            stored_path = str(refund_dir / unique_name)
+
+            with open(stored_path, "wb") as f:
+                f.write(content)
+
+            if file_type == FileType.xls and not xls_items_created:
+                items = try_parse_xls(content)
+                if items:
+                    for item_data in items:
+                        item = RefundItem(
+                            refund_id=refund.id,
+                            article=item_data["article"],
+                            brand=item_data.get("brand"),
+                            quantity=item_data.get("quantity", 1),
+                            price=item_data.get("price", 0),
+                            description=item_data.get("description"),
+                        )
+                        db.add(item)
+                    xls_items_created = True
+                    logger.debug(f"Parsed {len(items)} items from XLS for refund {refund.id}")
+
+            attachment = FileAttachment(
+                refund_id=refund.id,
+                filename=filename,
+                stored_path=stored_path,
+                file_type=file_type,
+                file_size=len(content),
+            )
+            db.add(attachment)
+
+        await db.flush()
+        conn.store(uid.encode(), "+FLAGS", "\\Seen")
+        logger.info(f"Created refund {display_id} (id={refund.id}) from email UID={uid}")
+        return refund
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+
 async def process_emails(db: AsyncSession) -> int:
     """Connect to IMAP, fetch unseen emails, create Refunds. Returns number processed."""
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
