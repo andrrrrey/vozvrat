@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, exists
 from sqlalchemy.orm import selectinload
 import os
 
@@ -106,6 +106,8 @@ async def refunds_page(
     supplier_id: Optional[int] = None,
     client_name: Optional[str] = None,
     date: Optional[str] = None,
+    article: Optional[str] = None,
+    order_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_optional_user(request, db)
@@ -113,6 +115,8 @@ async def refunds_page(
         return RedirectResponse(url="/login", status_code=302)
     if user.role.value == "client":
         return RedirectResponse(url="/client/refunds", status_code=302)
+
+    from app.models.refund_item import RefundItem
 
     query = select(Refund).options(
         selectinload(Refund.supplier),
@@ -136,6 +140,17 @@ async def refunds_page(
             conditions.append(func.date(Refund.created_at) == d)
         except ValueError:
             pass
+    if article:
+        conditions.append(
+            exists().where(
+                and_(
+                    RefundItem.refund_id == Refund.id,
+                    RefundItem.article.ilike(f"%{article}%"),
+                )
+            )
+        )
+    if order_id:
+        conditions.append(Refund.order_id.ilike(f"%{order_id}%"))
 
     if conditions:
         query = query.where(and_(*conditions))
@@ -157,6 +172,8 @@ async def refunds_page(
         "current_supplier_id": supplier_id,
         "current_client_name": client_name or "",
         "current_date": date or "",
+        "current_article": article or "",
+        "current_order_id": order_id or "",
     })
 
 

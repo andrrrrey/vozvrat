@@ -14,10 +14,20 @@
     </td>
     <td class="px-6 py-4">
         {% if refund.items %}
+        <p class="font-medium text-gray-800 text-sm mono">{{ refund.items[0].article }}</p>
+        {% if refund.items | length > 1 %}
+        <p class="text-xs text-gray-400 mt-0.5">и ещё {{ refund.items | length - 1 }}</p>
+        {% endif %}
+        {% else %}
+        <p class="text-xs text-gray-300">—</p>
+        {% endif %}
+    </td>
+    <td class="px-6 py-4">
+        {% if refund.items %}
         <p class="font-semibold text-gray-900 text-sm">
             {{ "{:,.0f}".format(refund.items | sum(attribute='price') * 1) }} ₽
         </p>
-        <p class="text-xs text-gray-400 mt-0.5">{{ refund.items | length }} поз.</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ refund.items | sum(attribute='quantity') }} шт.</p>
         {% else %}
         <p class="text-xs text-gray-300">—</p>
         {% endif %}
@@ -35,7 +45,7 @@
 </tr>
 {% else %}
 <tr>
-    <td colspan="5" class="px-6 py-12 text-center text-gray-400 text-sm">
+    <td colspan="6" class="px-6 py-12 text-center text-gray-400 text-sm">
         Возвратов не найдено
     </td>
 </tr>

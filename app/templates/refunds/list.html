@@ -9,23 +9,30 @@
             <h1 class="text-2xl font-bold text-gray-900">Все возвраты</h1>
             <p class="text-sm text-gray-500 mt-1">Управление возвратами товаров</p>
         </div>
-        {% if user.role.value in ('admin', 'staff') %}
-        <a href="/refunds/create" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Создать возврат
-        </a>
-        {% endif %}
+        <div class="flex items-center gap-2">
+            {% if user.role.value in ('admin', 'staff') %}
+            <button onclick="document.getElementById('import-xls-modal').classList.remove('hidden')"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-2xl text-sm font-semibold hover:bg-gray-50 shadow-sm border border-gray-200 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                Выгрузить из таблицы
+            </button>
+            <a href="/refunds/create" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Создать возврат
+            </a>
+            {% endif %}
+        </div>
     </div>
 
     <!-- Filters -->
     <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div>
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Статус</label>
                 <select name="status"
                     hx-get="/api/refunds/table"
                     hx-trigger="change"
-                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date']"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
                     hx-target="#refunds-tbody"
                     hx-indicator="#table-spinner"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
@@ -44,7 +51,7 @@
                 <select name="supplier_id"
                     hx-get="/api/refunds/table"
                     hx-trigger="change"
-                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date']"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
                     hx-target="#refunds-tbody"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
                     <option value="">Все поставщики</option>
@@ -59,7 +66,27 @@
                     placeholder="Поиск по клиенту..."
                     hx-get="/api/refunds/table"
                     hx-trigger="keyup changed delay:400ms"
-                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date']"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
+                    hx-target="#refunds-tbody"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Артикул</label>
+                <input type="text" name="article" value="{{ current_article }}"
+                    placeholder="Поиск по артикулу..."
+                    hx-get="/api/refunds/table"
+                    hx-trigger="keyup changed delay:400ms"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
+                    hx-target="#refunds-tbody"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">ID заказа</label>
+                <input type="text" name="order_id" value="{{ current_order_id }}"
+                    placeholder="Поиск по ID заказа..."
+                    hx-get="/api/refunds/table"
+                    hx-trigger="keyup changed delay:400ms"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
                     hx-target="#refunds-tbody"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
             </div>
@@ -68,7 +95,7 @@
                 <input type="date" name="date" value="{{ current_date }}"
                     hx-get="/api/refunds/table"
                     hx-trigger="change"
-                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date']"
+                    hx-include="[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']"
                     hx-target="#refunds-tbody"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
             </div>
@@ -83,6 +110,7 @@
                     <tr class="bg-gray-50/50 border-b border-gray-100">
                         <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">ID / Дата</th>
                         <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Клиент / Поставщик</th>
+                        <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Артикул детали</th>
                         <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Сумма</th>
                         <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Статус</th>
                         <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider"></th>
@@ -100,4 +128,100 @@
         </div>
     </div>
 </div>
+
+<!-- XLS Import Modal -->
+<div id="import-xls-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-bold text-gray-900">Выгрузить из таблицы</h2>
+            <button onclick="document.getElementById('import-xls-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        <p class="text-sm text-gray-500 mb-4">
+            Загрузите XLS/XLSX файл с возвратами. Каждая строка будет создана как отдельный возврат.<br>
+            <span class="font-medium text-gray-700">Ожидаемые столбцы:</span> Поставщик, ID клиента, ID позиции, ID заказа, Артикул, Бренд, Кол-во к возврату, Цена, Сумма, Причина возврата, Комментарий, Эл.адрес
+        </p>
+
+        <form id="import-xls-form" enctype="multipart/form-data">
+            <div class="mb-4">
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Файл XLS/XLSX</label>
+                <input type="file" name="file" id="import-file-input" accept=".xls,.xlsx"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-black cursor-pointer">
+            </div>
+
+            <div id="import-result" class="hidden mb-4 p-3 rounded-xl text-sm"></div>
+
+            <div class="flex gap-2 justify-end">
+                <button type="button" onclick="document.getElementById('import-xls-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-semibold text-gray-600 bg-gray-100 rounded-2xl hover:bg-gray-200 transition-all">
+                    Отмена
+                </button>
+                <button type="button" id="import-xls-btn" onclick="submitXlsImport()"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    Загрузить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function submitXlsImport() {
+    const fileInput = document.getElementById('import-file-input');
+    const resultDiv = document.getElementById('import-result');
+    const btn = document.getElementById('import-xls-btn');
+
+    if (!fileInput.files.length) {
+        resultDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-red-50 text-red-700';
+        resultDiv.textContent = 'Выберите файл для загрузки';
+        resultDiv.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Загрузка...';
+    resultDiv.classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+        const resp = await fetch('/api/refunds/import-xls', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await resp.json();
+
+        if (resp.ok) {
+            let msg = `Создано возвратов: ${data.created}`;
+            if (data.errors && data.errors.length) {
+                msg += `\nОшибки (${data.errors.length}):\n` + data.errors.slice(0, 5).join('\n');
+                if (data.errors.length > 5) msg += `\n...и ещё ${data.errors.length - 5}`;
+                resultDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-yellow-50 text-yellow-700 whitespace-pre-line';
+            } else {
+                resultDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-green-50 text-green-700';
+            }
+            resultDiv.textContent = msg;
+            resultDiv.classList.remove('hidden');
+            // Reload table
+            htmx.trigger('#refunds-tbody', 'htmx:load');
+            htmx.ajax('GET', '/api/refunds/table', {target: '#refunds-tbody'});
+        } else {
+            resultDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-red-50 text-red-700';
+            resultDiv.textContent = data.detail || 'Ошибка при загрузке файла';
+            resultDiv.classList.remove('hidden');
+        }
+    } catch (e) {
+        resultDiv.className = 'mb-4 p-3 rounded-xl text-sm bg-red-50 text-red-700';
+        resultDiv.textContent = 'Ошибка сети: ' + e.message;
+        resultDiv.classList.remove('hidden');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg> Загрузить';
+}
+</script>
 {% endblock %}
