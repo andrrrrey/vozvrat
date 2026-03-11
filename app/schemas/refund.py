@@ -12,6 +12,8 @@ class RefundItemCreate(BaseModel):
     quantity: int = 1
     price: Decimal = Decimal("0")
     description: Optional[str] = None
+    position_id: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class RefundItemResponse(BaseModel):
@@ -23,6 +25,8 @@ class RefundItemResponse(BaseModel):
     quantity: int
     price: Decimal
     description: Optional[str]
+    position_id: Optional[str]
+    comment: Optional[str]
 
 
 class FileAttachmentResponse(BaseModel):
