@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, exists
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.refund import Refund, RefundStatus, RefundSource
@@ -28,7 +28,8 @@ async def generate_display_id(db: AsyncSession) -> str:
 
 
 def build_refund_filter(query, status: Optional[str], supplier_id: Optional[int],
-                        client_name: Optional[str], date_from: Optional[str]):
+                        client_name: Optional[str], date_from: Optional[str],
+                        article: Optional[str] = None, order_id: Optional[str] = None):
     conditions = []
     if status:
         try:
@@ -45,6 +46,17 @@ def build_refund_filter(query, status: Optional[str], supplier_id: Optional[int]
             conditions.append(func.date(Refund.created_at) == d)
         except ValueError:
             pass
+    if article:
+        conditions.append(
+            exists().where(
+                and_(
+                    RefundItem.refund_id == Refund.id,
+                    RefundItem.article.ilike(f"%{article}%"),
+                )
+            )
+        )
+    if order_id:
+        conditions.append(Refund.order_id.ilike(f"%{order_id}%"))
     if conditions:
         query = query.where(and_(*conditions))
     return query
@@ -92,6 +104,8 @@ async def refunds_table_partial(
     supplier_id: Optional[str] = None,
     client_name: Optional[str] = None,
     date: Optional[str] = None,
+    article: Optional[str] = None,
+    order_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Return HTML partial (tbody) for HTMX table update."""
@@ -112,7 +126,7 @@ async def refunds_table_partial(
     if user.role.value == "client":
         query = query.where(Refund.client_user_id == user.id)
 
-    query = build_refund_filter(query, status, supplier_id_int, client_name, date)
+    query = build_refund_filter(query, status, supplier_id_int, client_name, date, article, order_id)
     query = query.limit(20)
 
     result = await db.execute(query)
@@ -249,6 +263,132 @@ async def create_refund_from_email(
 
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"/refunds/{refund.id}", status_code=302)
+
+
+@router.post("/import-xls")
+async def import_refunds_from_xls(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create returns from uploaded XLS/XLSX file. Each row = one new return."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    import openpyxl
+    from io import BytesIO
+    from decimal import Decimal, InvalidOperation
+
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Не удалось открыть файл. Убедитесь, что это корректный XLS/XLSX.")
+
+    ws = wb.active
+
+    rows_iter = ws.iter_rows(values_only=True)
+    header_row = next(rows_iter, None)
+    if not header_row:
+        wb.close()
+        raise HTTPException(status_code=400, detail="Файл пустой или не содержит заголовков")
+
+    col_map = {}
+    for idx, cell in enumerate(header_row):
+        if cell is not None:
+            col_map[str(cell).strip()] = idx
+
+    def get_cell(row, name, default=""):
+        idx = col_map.get(name)
+        if idx is None or idx >= len(row):
+            return default
+        val = row[idx]
+        return str(val).strip() if val is not None else default
+
+    created_count = 0
+    errors = []
+
+    for row_num, row in enumerate(rows_iter, start=2):
+        if all(v is None or str(v).strip() == "" for v in row):
+            continue
+        try:
+            supplier_name = get_cell(row, "Поставщик")
+            client_id_val = get_cell(row, "ID клиента")
+            position_id = get_cell(row, "ID позиции")
+            order_id_val = get_cell(row, "ID заказа") or None
+            article = get_cell(row, "Артикул")
+            brand = get_cell(row, "Бренд") or None
+            quantity_raw = get_cell(row, "Кол-во к возврату", "1")
+            price_raw = get_cell(row, "Цена", "0")
+            reason = get_cell(row, "Причина возврата") or None
+            comment = get_cell(row, "Комментарий")
+            email_val = get_cell(row, "Эл.адрес") or None
+
+            if not article and not client_id_val:
+                continue
+
+            # Resolve supplier
+            supplier_id_resolved = None
+            if supplier_name:
+                res = await db.execute(select(Supplier).where(Supplier.name.ilike(supplier_name)))
+                supplier_obj = res.scalar_one_or_none()
+                if supplier_obj:
+                    supplier_id_resolved = supplier_obj.id
+
+            # Parse quantity
+            try:
+                quantity = max(1, int(float(quantity_raw))) if quantity_raw else 1
+            except (ValueError, TypeError):
+                quantity = 1
+
+            # Parse price
+            try:
+                price = Decimal(price_raw.replace(",", ".")) if price_raw else Decimal("0")
+            except (InvalidOperation, AttributeError):
+                price = Decimal("0")
+
+            # Build description from position id + comment
+            desc_parts = []
+            if position_id:
+                desc_parts.append(f"ID позиции: {position_id}")
+            if comment:
+                desc_parts.append(comment)
+            description = "\n".join(desc_parts) or None
+
+            display_id = await generate_display_id(db)
+            refund = Refund(
+                display_id=display_id,
+                status=RefundStatus.received,
+                source=RefundSource.manual,
+                client_name=client_id_val or "—",
+                supplier_id=supplier_id_resolved,
+                order_id=order_id_val,
+                reason=reason,
+                email_from=email_val,
+                created_by_id=user.id,
+            )
+            db.add(refund)
+            await db.flush()
+            await db.refresh(refund)
+
+            item = RefundItem(
+                refund_id=refund.id,
+                article=article or "—",
+                brand=brand,
+                quantity=quantity,
+                price=price,
+                description=description,
+            )
+            db.add(item)
+            await db.flush()
+            created_count += 1
+
+        except Exception as e:
+            errors.append(f"Строка {row_num}: {str(e)}")
+
+    wb.close()
+    return JSONResponse({"ok": True, "created": created_count, "errors": errors})
 
 
 @router.delete("/{refund_id}")
