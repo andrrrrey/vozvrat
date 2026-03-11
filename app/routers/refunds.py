@@ -363,14 +363,6 @@ async def import_refunds_from_xls(
             except (InvalidOperation, AttributeError):
                 price = Decimal("0")
 
-            # Build description from position id + comment
-            desc_parts = []
-            if position_id:
-                desc_parts.append(f"ID позиции: {position_id}")
-            if comment:
-                desc_parts.append(comment)
-            description = "\n".join(desc_parts) or None
-
             display_id = await generate_display_id(db)
             refund = Refund(
                 display_id=display_id,
@@ -393,7 +385,8 @@ async def import_refunds_from_xls(
                 brand=brand,
                 quantity=quantity,
                 price=price,
-                description=description,
+                position_id=position_id or None,
+                comment=comment or None,
             )
             db.add(item)
             await db.flush()

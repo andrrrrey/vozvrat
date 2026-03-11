@@ -46,13 +46,19 @@
                 <!-- Product Details -->
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Детали товара</p>
+                    {% if refund.supplier %}
+                    <div class="flex justify-between text-xs mb-3 pb-3 border-b border-gray-100">
+                        <span class="text-gray-400">Поставщик</span>
+                        <span class="font-medium text-gray-700">{{ refund.supplier.name }}</span>
+                    </div>
+                    {% endif %}
                     {% if refund.items %}
                     {% for item in refund.items %}
                     <div class="{% if not loop.first %}mt-3 pt-3 border-t border-gray-100{% endif %}">
-                        {% if refund.supplier %}
+                        {% if item.position_id %}
                         <div class="flex justify-between text-xs mb-1">
-                            <span class="text-gray-400">Поставщик</span>
-                            <span class="font-medium text-gray-700">{{ refund.supplier.name }}</span>
+                            <span class="text-gray-400">ID позиции</span>
+                            <span class="font-medium mono text-gray-700">{{ item.position_id }}</span>
                         </div>
                         {% endif %}
                         <div class="flex justify-between text-xs mb-1">
@@ -69,10 +75,16 @@
                             <span class="text-gray-400">Количество</span>
                             <span class="font-medium text-gray-700">{{ item.quantity }} шт.</span>
                         </div>
-                        <div class="flex justify-between text-xs">
+                        <div class="flex justify-between text-xs {% if item.comment %}mb-1{% endif %}">
                             <span class="text-gray-400">Цена</span>
                             <span class="font-bold text-gray-900">{{ "{:,.2f}".format(item.price) }} ₽</span>
                         </div>
+                        {% if item.comment %}
+                        <div class="mt-1 pt-1">
+                            <p class="text-[10px] text-gray-400 mb-0.5">Комментарий</p>
+                            <p class="text-xs text-gray-600">{{ item.comment }}</p>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                     {% else %}
