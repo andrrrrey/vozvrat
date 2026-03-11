@@ -277,23 +277,23 @@ async def import_refunds_from_xls(
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     import openpyxl
-    import openpyxl.worksheet.views as _openpyxl_views
+    import openpyxl.descriptors.base as _openpyxl_desc
     from io import BytesIO
     from decimal import Decimal, InvalidOperation
 
     # Some xlsx files contain invalid 'pane' attribute values that openpyxl rejects.
-    # Patch Pane.__init__ once to silently drop unrecognised pane values.
-    if not getattr(_openpyxl_views, "_pane_patched", False):
-        _orig_pane_init = _openpyxl_views.Pane.__init__
-        _valid_panes = {"bottomRight", "topRight", "bottomLeft", "topLeft"}
+    # The error comes from NoneSet.__set__ (a descriptor), not __init__.
+    # Patch NoneSet.__set__ once to silently coerce unknown values to None.
+    if not getattr(_openpyxl_desc, "_noneset_patched", False):
+        _orig_noneset_set = _openpyxl_desc.NoneSet.__set__
 
-        def _safe_pane_init(self, *args, **kwargs):
-            if "pane" in kwargs and kwargs["pane"] not in _valid_panes:
-                kwargs["pane"] = None
-            _orig_pane_init(self, *args, **kwargs)
+        def _safe_noneset_set(self, instance, value):
+            if value is not None and value != "none" and value not in self.values:
+                value = None
+            _orig_noneset_set(self, instance, value)
 
-        _openpyxl_views.Pane.__init__ = _safe_pane_init
-        _openpyxl_views._pane_patched = True
+        _openpyxl_desc.NoneSet.__set__ = _safe_noneset_set
+        _openpyxl_desc._noneset_patched = True
 
     content = await file.read()
     try:
