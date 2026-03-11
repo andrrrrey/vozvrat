@@ -277,8 +277,23 @@ async def import_refunds_from_xls(
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     import openpyxl
+    import openpyxl.worksheet.views as _openpyxl_views
     from io import BytesIO
     from decimal import Decimal, InvalidOperation
+
+    # Some xlsx files contain invalid 'pane' attribute values that openpyxl rejects.
+    # Patch Pane.__init__ once to silently drop unrecognised pane values.
+    if not getattr(_openpyxl_views, "_pane_patched", False):
+        _orig_pane_init = _openpyxl_views.Pane.__init__
+        _valid_panes = {"bottomRight", "topRight", "bottomLeft", "topLeft"}
+
+        def _safe_pane_init(self, *args, **kwargs):
+            if "pane" in kwargs and kwargs["pane"] not in _valid_panes:
+                kwargs["pane"] = None
+            _orig_pane_init(self, *args, **kwargs)
+
+        _openpyxl_views.Pane.__init__ = _safe_pane_init
+        _openpyxl_views._pane_patched = True
 
     content = await file.read()
     try:
