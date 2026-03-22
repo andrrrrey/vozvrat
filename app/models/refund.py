@@ -63,6 +63,8 @@ class Refund(Base):
     created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     email_subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     email_from: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    supplier_doc_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    supplier_email_sent_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
     # Relationships
     client_user: Mapped[Optional["User"]] = relationship(

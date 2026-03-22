@@ -92,22 +92,75 @@
 
         <!-- Right: Chat (5 cols) -->
         <div class="lg:col-span-5">
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 h-full flex flex-col">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col" style="min-height: 400px;">
                 <div class="flex items-center gap-2 mb-4">
                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex-1">Связь с менеджером</p>
-                    <span class="w-2 h-2 bg-gray-300 rounded-full"></span>
+                    <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 </div>
 
-                <div class="flex-1 min-h-[200px] flex items-center justify-center bg-gray-50 rounded-xl mb-4">
-                    <p class="text-xs text-gray-400 text-center px-4">Ожидайте ответа менеджера...</p>
+                <div id="chat-messages"
+                    class="flex-1 overflow-y-auto space-y-1 mb-4 pr-1"
+                    style="max-height: 360px;"
+                    hx-get="/api/refunds/{{ refund.id }}/messages"
+                    hx-trigger="load"
+                    hx-swap="innerHTML">
+                    <div class="flex items-center justify-center py-8">
+                        <p class="text-xs text-gray-400">Загрузка...</p>
+                    </div>
                 </div>
 
-                <div class="relative">
-                    <input type="text" disabled placeholder="Чат будет доступен в следующем обновлении"
-                        class="w-full bg-gray-50 rounded-2xl px-4 py-3 text-xs ring-1 ring-gray-200 text-gray-400 cursor-not-allowed">
-                </div>
+                <form id="chat-form" onsubmit="sendMessage(event)" class="space-y-2">
+                    <textarea id="chat-input" name="text" rows="2"
+                        placeholder="Написать менеджеру..."
+                        class="w-full bg-gray-50 rounded-xl px-3 py-2.5 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('chat-form').dispatchEvent(new Event('submit'));}"></textarea>
+                    <button type="submit"
+                        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        Отправить
+                    </button>
+                </form>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+async function sendMessage(e) {
+    e.preventDefault();
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const data = new FormData();
+    data.set('text', text);
+    data.set('visibility', 'all');
+
+    try {
+        const res = await fetch('/api/refunds/{{ refund.id }}/messages', {
+            method: 'POST',
+            body: data,
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            if (window.showToast) showToast('Ошибка: ' + (err.detail || 'Не удалось отправить'), 'error');
+            return;
+        }
+        const html = await res.text();
+        document.getElementById('chat-messages').innerHTML = html;
+        input.value = '';
+        const el = document.getElementById('chat-messages');
+        if (el) el.scrollTop = el.scrollHeight;
+    } catch {
+        if (window.showToast) showToast('Ошибка сети', 'error');
+    }
+}
+
+document.body.addEventListener('htmx:afterSettle', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
+        const el = document.getElementById('chat-messages');
+        if (el) el.scrollTop = el.scrollHeight;
+    }
+});
+</script>
 {% endblock %}

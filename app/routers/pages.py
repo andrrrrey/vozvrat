@@ -311,6 +311,24 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     })
 
 
+@router.get("/settings")
+async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value != "admin":
+        return RedirectResponse(url="/refunds", status_code=302)
+
+    from app.services.settings_service import get_all_settings
+    app_settings = await get_all_settings(db)
+
+    return templates.TemplateResponse("settings/index.html", {
+        "request": request,
+        "user": user,
+        "app_settings": app_settings,
+    })
+
+
 @router.get("/client/refunds")
 async def client_refunds_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = await get_optional_user(request, db)
