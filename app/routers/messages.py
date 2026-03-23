@@ -94,8 +94,7 @@ async def send_message(
         visibility=visibility,
     )
     db.add(msg)
-    await db.flush()
-    await db.refresh(msg, ["user"])
+    await db.commit()
 
     messages = await _load_messages(refund_id, user.role.value, db)
 

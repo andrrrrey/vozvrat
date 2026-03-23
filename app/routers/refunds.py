@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.supplier import Supplier
+from app.models.user import User
 from app.schemas.refund import RefundResponse, RefundStatusUpdate
 from app.services.auth import get_current_user
 from app.services.file_service import save_file
@@ -180,14 +181,19 @@ async def create_refund(
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     form = await request.form()
-    client_name = str(form.get("client_name", "")).strip()
-    if not client_name:
-        raise HTTPException(status_code=400, detail="Имя клиента обязательно")
-
     supplier_id_raw = form.get("supplier_id")
     supplier_id = int(supplier_id_raw) if supplier_id_raw and str(supplier_id_raw).isdigit() else None
     client_user_id_raw = form.get("client_user_id")
     client_user_id = int(client_user_id_raw) if client_user_id_raw and str(client_user_id_raw).isdigit() else None
+
+    if not client_user_id:
+        raise HTTPException(status_code=400, detail="Необходимо выбрать аккаунт клиента")
+
+    client_result = await db.execute(select(User).where(User.id == client_user_id))
+    client_user = client_result.scalar_one_or_none()
+    if not client_user:
+        raise HTTPException(status_code=400, detail="Клиент не найден")
+    client_name = client_user.full_name
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
     article = str(form.get("article", "")).strip()
