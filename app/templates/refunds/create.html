@@ -36,6 +36,18 @@
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                     </div>
 
+                    <!-- Client Account Link -->
+                    <div>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Аккаунт клиента</label>
+                        <select name="client_user_id" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                            <option value="">— Не привязан —</option>
+                            {% for c in clients %}
+                            <option value="{{ c.id }}">{{ c.full_name }} ({{ c.email }})</option>
+                            {% endfor %}
+                        </select>
+                        <p class="text-[10px] text-gray-400 mt-1">Привязать возврат к аккаунту клиента для отображения в его профиле</p>
+                    </div>
+
                     <!-- Order ID -->
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">ID Заказа</label>
