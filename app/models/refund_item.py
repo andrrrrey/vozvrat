@@ -13,7 +13,7 @@ class RefundItem(Base):
     article: Mapped[str] = mapped_column(String(255), nullable=False)
     brand: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    price: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False, default=0)
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     position_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     comment: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
