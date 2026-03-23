@@ -186,6 +186,8 @@ async def create_refund(
 
     supplier_id_raw = form.get("supplier_id")
     supplier_id = int(supplier_id_raw) if supplier_id_raw and str(supplier_id_raw).isdigit() else None
+    client_user_id_raw = form.get("client_user_id")
+    client_user_id = int(client_user_id_raw) if client_user_id_raw and str(client_user_id_raw).isdigit() else None
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
     article = str(form.get("article", "")).strip()
@@ -211,6 +213,7 @@ async def create_refund(
         status=RefundStatus.received,
         source=RefundSource.manual,
         client_name=client_name,
+        client_user_id=client_user_id,
         supplier_id=supplier_id,
         order_id=order_id,
         reason=reason,
@@ -450,6 +453,39 @@ async def delete_refund(
     await db.delete(refund)
     await db.flush()
 
+    return JSONResponse({"ok": True})
+
+
+@router.post("/{refund_id}/assign-client")
+async def assign_client_user(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    form = await request.form()
+    client_user_id_raw = form.get("client_user_id", "")
+    client_user_id = int(client_user_id_raw) if str(client_user_id_raw).strip().isdigit() else None
+
+    result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = result.scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    if client_user_id:
+        from app.models.user import User
+        client_result = await db.execute(select(User).where(User.id == client_user_id))
+        client = client_result.scalar_one_or_none()
+        if not client:
+            raise HTTPException(status_code=404, detail="Клиент не найден")
+        refund.client_user_id = client_user_id
+    else:
+        refund.client_user_id = None
+
+    await db.flush()
     return JSONResponse({"ok": True})
 
 

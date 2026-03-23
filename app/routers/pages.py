@@ -185,15 +185,22 @@ async def create_refund_page(request: Request, db: AsyncSession = Depends(get_db
     if user.role.value not in ("admin", "staff"):
         return RedirectResponse(url="/refunds", status_code=302)
 
+    from app.models.user import User, UserRole
     suppliers_result = await db.execute(
         select(Supplier).where(Supplier.is_active == True).order_by(Supplier.name)
     )
     suppliers = suppliers_result.scalars().all()
 
+    clients_result = await db.execute(
+        select(User).where(User.role == UserRole.client, User.is_active == True).order_by(User.full_name)
+    )
+    clients = clients_result.scalars().all()
+
     return templates.TemplateResponse("refunds/create.html", {
         "request": request,
         "user": user,
         "suppliers": suppliers,
+        "clients": clients,
     })
 
 
@@ -223,11 +230,18 @@ async def refund_detail_page(
     if not refund:
         return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
 
+    from app.models.user import User as UserModel, UserRole
+    clients_result = await db.execute(
+        select(UserModel).where(UserModel.role == UserRole.client, UserModel.is_active == True).order_by(UserModel.full_name)
+    )
+    clients = clients_result.scalars().all()
+
     return templates.TemplateResponse("refunds/card.html", {
         "request": request,
         "user": user,
         "refund": refund,
         "statuses": RefundStatus,
+        "clients": clients,
     })
 
 
@@ -337,11 +351,17 @@ async def client_refunds_page(request: Request, db: AsyncSession = Depends(get_d
     if user.role.value != "client":
         return RedirectResponse(url="/refunds", status_code=302)
 
+    from sqlalchemy import or_
     result = await db.execute(
         select(Refund).options(
             selectinload(Refund.supplier),
             selectinload(Refund.items),
-        ).where(Refund.client_user_id == user.id).order_by(Refund.created_at.desc())
+        ).where(
+            or_(
+                Refund.client_user_id == user.id,
+                and_(Refund.client_user_id.is_(None), Refund.client_name == user.full_name),
+            )
+        ).order_by(Refund.created_at.desc())
     )
     refunds = result.scalars().all()
 
