@@ -1,0 +1,23 @@
+{% if messages %}
+<div class="space-y-3">
+    {% for msg in messages %}
+    <div class="{% if msg.user_id == user.id %}flex flex-col items-end{% else %}flex flex-col items-start{% endif %}">
+        <div class="{% if msg.user_id == user.id %}bg-black text-white{% else %}bg-gray-100 text-gray-800{% endif %} rounded-2xl px-3.5 py-2.5 max-w-[85%]">
+            <p class="text-xs leading-relaxed whitespace-pre-wrap break-words">{{ msg.text }}</p>
+        </div>
+        <div class="flex items-center gap-1.5 mt-1 px-1">
+            <span class="text-[10px] text-gray-400">{{ msg.user.full_name }}</span>
+            <span class="text-[10px] text-gray-300">·</span>
+            <span class="text-[10px] text-gray-400">{{ msg.created_at.strftime('%d.%m %H:%M') }}</span>
+            {% if msg.visibility.value == 'staff_only' %}
+            <span class="text-[10px] bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded-full font-medium">только сотр.</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="flex-1 flex items-center justify-center py-8">
+    <p class="text-xs text-gray-400 text-center px-4">Сообщений пока нет</p>
+</div>
+{% endif %}

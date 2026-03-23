@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
@@ -95,6 +96,37 @@ async def list_refunds(
     refunds = result.scalars().all()
 
     return {"refunds": refunds, "total": total, "page": page, "per_page": per_page}
+
+
+@router.get("/export-1c")
+async def export_1c(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export all refunds as CSV for 1C import."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from fastapi.responses import Response
+    from datetime import datetime as dt
+
+    query = select(Refund).options(
+        selectinload(Refund.supplier),
+        selectinload(Refund.items),
+    ).order_by(Refund.created_at.desc())
+    result = await db.execute(query)
+    refunds = result.scalars().all()
+
+    from app.services.ftp_service import build_1c_csv
+    csv_data = build_1c_csv(refunds)
+
+    filename = f"export_1c_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/table")
@@ -419,6 +451,66 @@ async def delete_refund(
     await db.flush()
 
     return JSONResponse({"ok": True})
+
+
+@router.post("/{refund_id}/send-supplier-email")
+async def send_supplier_email_endpoint(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send email notification to supplier with return details and photos."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    result = await db.execute(
+        select(Refund).options(
+            selectinload(Refund.supplier),
+            selectinload(Refund.items),
+            selectinload(Refund.files),
+        ).where(Refund.id == refund_id)
+    )
+    refund = result.scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    if not refund.supplier:
+        raise HTTPException(status_code=400, detail="У возврата не указан поставщик")
+    if not refund.supplier.email:
+        raise HTTPException(status_code=400, detail="У поставщика не указан email")
+
+    from app.config import settings as cfg
+    photo_paths = [
+        os.path.join(cfg.UPLOAD_DIR, f.stored_path) if not os.path.isabs(f.stored_path)
+        else f.stored_path
+        for f in refund.files
+        if f.file_type.value == "photo"
+    ]
+
+    from app.services.email_service import send_supplier_email
+    try:
+        await send_supplier_email(
+            db=db,
+            to_email=refund.supplier.email,
+            refund_display_id=refund.display_id,
+            supplier_name=refund.supplier.name,
+            items=refund.items,
+            reason=refund.reason,
+            supplier_doc_number=refund.supplier_doc_number,
+            photo_paths=photo_paths,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to send supplier email for refund {refund_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки письма: {e}")
+
+    from datetime import datetime as dt
+    refund.supplier_email_sent_at = dt.utcnow()
+    await db.flush()
+
+    return JSONResponse({"ok": True, "message": "Письмо поставщику отправлено"})
 
 
 @router.post("/{refund_id}/status")

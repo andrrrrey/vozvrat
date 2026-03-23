@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <div class="mb-6">
+        <h1 class="text-xl font-bold text-gray-900">Настройки системы</h1>
+        <p class="text-xs text-gray-500 mt-1">Конфигурация почты, FTP и тестового режима</p>
+    </div>
+
+    <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-6 max-w-2xl">
+
+        <!-- SMTP / Исходящая почта -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Исходящая почта (SMTP)</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">SMTP хост</label>
+                    <input type="text" name="smtp_host" value="{{ app_settings.smtp_host }}"
+                        placeholder="smtp.mail.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Порт</label>
+                    <input type="number" name="smtp_port" value="{{ app_settings.smtp_port or '587' }}"
+                        placeholder="587"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Логин</label>
+                    <input type="text" name="smtp_user" value="{{ app_settings.smtp_user }}"
+                        placeholder="login@mail.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Пароль</label>
+                    <input type="password" name="smtp_password" value="{{ app_settings.smtp_password }}"
+                        placeholder="••••••••"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Отправитель (From)</label>
+                    <input type="text" name="smtp_from" value="{{ app_settings.smtp_from }}"
+                        placeholder="noreply@company.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div class="flex items-center pt-5">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="smtp_use_tls" value="true"
+                            {% if app_settings.smtp_use_tls != 'false' %}checked{% endif %}
+                            class="w-4 h-4 rounded accent-black">
+                        <span class="text-xs font-medium text-gray-600">Использовать STARTTLS</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button type="button" onclick="testSmtp()"
+                    class="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Проверить подключение
+                </button>
+                <span id="smtp-test-result" class="ml-3 text-xs"></span>
+            </div>
+        </div>
+
+        <!-- Тестовый режим отправки поставщикам -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Отправка писем поставщикам</p>
+
+            <div class="flex items-start gap-3 mb-4 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                <svg class="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <p class="text-xs text-amber-700">В тестовом режиме все письма поставщикам перенаправляются на указанный тестовый адрес вместо реального email поставщика.</p>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer mb-4">
+                <div class="relative">
+                    <input type="checkbox" name="supplier_email_test_mode" value="true" id="test-mode-toggle"
+                        {% if app_settings.supplier_email_test_mode == 'true' %}checked{% endif %}
+                        onchange="document.getElementById('test-email-row').classList.toggle('hidden', !this.checked)"
+                        class="sr-only">
+                    <div class="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:bg-black transition-colors" id="toggle-bg"></div>
+                    <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5" id="toggle-knob"></div>
+                </div>
+                <span class="text-sm font-medium text-gray-700">Тестовый режим отправки</span>
+            </label>
+
+            <div id="test-email-row" class="{% if app_settings.supplier_email_test_mode != 'true' %}hidden{% endif %}">
+                <label class="block text-xs font-medium text-gray-600 mb-1.5">Тестовый email</label>
+                <input type="email" name="supplier_email_test_address"
+                    value="{{ app_settings.supplier_email_test_address }}"
+                    placeholder="test@company.ru"
+                    class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10 max-w-xs">
+            </div>
+        </div>
+
+        <!-- FTP -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">FTP (интеграция с 1С)</p>
+            <p class="text-xs text-gray-400 mb-4">Используется для выгрузки возвратов в 1С и получения номеров документов поставщика.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">FTP хост</label>
+                    <input type="text" name="ftp_host" value="{{ app_settings.ftp_host }}"
+                        placeholder="ftp.company.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Порт</label>
+                    <input type="number" name="ftp_port" value="{{ app_settings.ftp_port or '21' }}"
+                        placeholder="21"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Логин</label>
+                    <input type="text" name="ftp_user" value="{{ app_settings.ftp_user }}"
+                        placeholder="ftpuser"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Пароль</label>
+                    <input type="password" name="ftp_password" value="{{ app_settings.ftp_password }}"
+                        placeholder="••••••••"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Базовый путь</label>
+                    <input type="text" name="ftp_path" value="{{ app_settings.ftp_path or '/' }}"
+                        placeholder="/exchange/vozvrat"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button type="button" onclick="testFtp()"
+                    class="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Проверить подключение
+                </button>
+                <span id="ftp-test-result" class="ml-3 text-xs"></span>
+            </div>
+        </div>
+
+        <!-- Save button -->
+        <div class="flex items-center gap-3">
+            <button type="submit"
+                class="flex items-center gap-2 px-6 py-2.5 bg-black text-white text-sm font-semibold rounded-xl hover:bg-gray-800 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                Сохранить настройки
+            </button>
+            <span id="save-result" class="text-xs"></span>
+        </div>
+    </form>
+</div>
+
+<script>
+// Toggle checkbox visual state
+document.getElementById('test-mode-toggle').addEventListener('change', function() {
+    const bg = document.getElementById('toggle-bg');
+    const knob = document.getElementById('toggle-knob');
+    if (this.checked) {
+        bg.classList.add('bg-black');
+        bg.classList.remove('bg-gray-200');
+        knob.style.transform = 'translateX(20px)';
+    } else {
+        bg.classList.remove('bg-black');
+        bg.classList.add('bg-gray-200');
+        knob.style.transform = '';
+    }
+});
+// Init toggle state
+(function() {
+    const t = document.getElementById('test-mode-toggle');
+    const bg = document.getElementById('toggle-bg');
+    const knob = document.getElementById('toggle-knob');
+    if (t.checked) {
+        bg.classList.add('bg-black'); bg.classList.remove('bg-gray-200');
+        knob.style.transform = 'translateX(20px)';
+    }
+})();
+
+async function saveSettings(e) {
+    e.preventDefault();
+    const form = document.getElementById('settings-form');
+    const data = new FormData(form);
+    // Ensure unchecked checkboxes are sent as false
+    ['smtp_use_tls', 'supplier_email_test_mode'].forEach(name => {
+        if (!data.has(name)) data.set(name, 'false');
+    });
+    const res = await fetch('/api/settings', { method: 'POST', body: data });
+    const json = await res.json();
+    const el = document.getElementById('save-result');
+    el.textContent = json.message || (json.ok ? 'Сохранено' : 'Ошибка');
+    el.className = 'text-xs ' + (json.ok ? 'text-green-600' : 'text-red-600');
+    setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function testFtp() {
+    const el = document.getElementById('ftp-test-result');
+    el.textContent = 'Проверяю...';
+    el.className = 'ml-3 text-xs text-gray-500';
+    // Save current values first
+    const form = document.getElementById('settings-form');
+    await fetch('/api/settings', { method: 'POST', body: new FormData(form) });
+    const res = await fetch('/api/settings/ftp/test', { method: 'POST' });
+    const json = await res.json();
+    el.textContent = json.message;
+    el.className = 'ml-3 text-xs ' + (json.ok ? 'text-green-600' : 'text-red-600');
+}
+
+async function testSmtp() {
+    const el = document.getElementById('smtp-test-result');
+    el.textContent = 'Проверяю...';
+    el.className = 'ml-3 text-xs text-gray-500';
+    const form = document.getElementById('settings-form');
+    await fetch('/api/settings', { method: 'POST', body: new FormData(form) });
+    const res = await fetch('/api/settings/smtp/test', { method: 'POST' });
+    const json = await res.json();
+    el.textContent = json.message;
+    el.className = 'ml-3 text-xs ' + (json.ok ? 'text-green-600' : 'text-red-600');
+}
+</script>
+{% endblock %}
