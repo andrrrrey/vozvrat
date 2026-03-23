@@ -223,7 +223,7 @@
                     class="flex-1 overflow-y-auto space-y-1 mb-4 pr-1"
                     style="max-height: 400px;"
                     hx-get="/api/refunds/{{ refund.id }}/messages"
-                    hx-trigger="load"
+                    hx-trigger="load, every 3s"
                     hx-swap="innerHTML">
                     <div class="flex items-center justify-center py-8">
                         <p class="text-xs text-gray-400">Загрузка...</p>
@@ -365,10 +365,17 @@ function scrollChatToBottom() {
     if (el) el.scrollTop = el.scrollHeight;
 }
 
-// Scroll after HTMX loads messages
+// Scroll after HTMX loads messages (only if user is near bottom)
+document.body.addEventListener('htmx:beforeSwap', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
+        const el = evt.detail.target;
+        evt.detail.target._wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    }
+});
 document.body.addEventListener('htmx:afterSettle', function(evt) {
     if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
-        scrollChatToBottom();
+        const el = evt.detail.target;
+        if (el._wasAtBottom !== false) scrollChatToBottom();
     }
 });
 
