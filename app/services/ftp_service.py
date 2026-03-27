@@ -7,6 +7,7 @@ import csv
 from typing import Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
+import openpyxl
 
 from app.services.settings_service import get_setting
 
@@ -125,3 +126,75 @@ async def upload_1c_export(db: AsyncSession, refunds: list) -> str:
 def build_1c_csv(refunds: list) -> bytes:
     """Public sync wrapper for building CSV without FTP upload."""
     return _build_1c_csv(refunds)
+
+
+def build_1c_xlsx(refunds: list) -> bytes:
+    """Build XLSX export for 1C. Article and order ID columns are stored as text
+    to prevent Excel from converting long numeric strings to scientific notation."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Возврат 1С"
+
+    headers = [
+        "Номер возврата",
+        "Статус",
+        "Клиент",
+        "Поставщик",
+        "ID заказа",
+        "Артикул",
+        "Производитель",
+        "Количество",
+        "Цена",
+        "Причина возврата",
+        "Номер документа поставщика",
+        "Дата создания",
+    ]
+    ws.append(headers)
+
+    # Columns that must stay as text: E=ID заказа (5), F=Артикул (6)
+    TEXT_COLS = {5, 6}
+
+    def _append_row(row_values: list) -> None:
+        ws.append(row_values)
+        r = ws.max_row
+        for col_idx in TEXT_COLS:
+            cell = ws.cell(row=r, column=col_idx)
+            cell.value = str(cell.value) if cell.value is not None else ""
+            cell.number_format = "@"
+
+    for refund in refunds:
+        if refund.items:
+            for item in refund.items:
+                _append_row([
+                    refund.display_id,
+                    refund.status_label,
+                    refund.client_name,
+                    refund.supplier.name if refund.supplier else "",
+                    refund.order_id or "",
+                    item.article,
+                    item.brand or "",
+                    item.quantity,
+                    float(item.price),
+                    refund.reason or "",
+                    refund.supplier_doc_number or "",
+                    refund.created_at.strftime("%d.%m.%Y %H:%M"),
+                ])
+        else:
+            _append_row([
+                refund.display_id,
+                refund.status_label,
+                refund.client_name,
+                refund.supplier.name if refund.supplier else "",
+                refund.order_id or "",
+                "",
+                "",
+                "",
+                "",
+                refund.reason or "",
+                refund.supplier_doc_number or "",
+                refund.created_at.strftime("%d.%m.%Y %H:%M"),
+            ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()

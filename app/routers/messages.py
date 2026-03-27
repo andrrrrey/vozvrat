@@ -1,4 +1,4 @@
-"""Chat messages API for refund cards."""
+"""Chat messages and staff comments API for refund cards."""
 import logging
 import os
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -101,4 +101,71 @@ async def send_message(
     return templates.TemplateResponse(
         "refunds/_chat_messages.html",
         {"request": request, "messages": messages, "user": user},
+    )
+
+
+async def _load_comments(refund_id: int, db: AsyncSession) -> list[Message]:
+    q = select(Message).options(selectinload(Message.user)).where(
+        Message.refund_id == refund_id,
+        Message.visibility == MessageVisibility.staff_only,
+    ).order_by(Message.created_at.asc())
+    result = await db.execute(q)
+    return list(result.scalars().all())
+
+
+@router.get("/{refund_id}/comments", response_class=HTMLResponse)
+async def get_comments(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    q = select(Refund).where(Refund.id == refund_id)
+    result = await db.execute(q)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    comments = await _load_comments(refund_id, db)
+    return templates.TemplateResponse(
+        "refunds/_comments.html",
+        {"request": request, "comments": comments, "user": user},
+    )
+
+
+@router.post("/{refund_id}/comments", response_class=HTMLResponse)
+async def post_comment(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    q = select(Refund).where(Refund.id == refund_id)
+    result = await db.execute(q)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    form = await request.form()
+    text = str(form.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Текст комментария пустой")
+
+    msg = Message(
+        refund_id=refund_id,
+        user_id=user.id,
+        text=text,
+        visibility=MessageVisibility.staff_only,
+    )
+    db.add(msg)
+    await db.commit()
+
+    comments = await _load_comments(refund_id, db)
+    return templates.TemplateResponse(
+        "refunds/_comments.html",
+        {"request": request, "comments": comments, "user": user},
     )

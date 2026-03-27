@@ -1,0 +1,18 @@
+{% if comments %}
+<div class="space-y-2">
+    {% for comment in comments %}
+    <div class="flex flex-col {% if comment.user_id == user.id %}items-end{% else %}items-start{% endif %}">
+        <div class="{% if comment.user_id == user.id %}bg-amber-50 text-gray-800{% else %}bg-gray-100 text-gray-800{% endif %} rounded-xl px-3 py-2 max-w-[95%]">
+            <p class="text-xs leading-relaxed whitespace-pre-wrap break-words">{{ comment.text }}</p>
+        </div>
+        <div class="flex items-center gap-1.5 mt-0.5 px-1">
+            <span class="text-[10px] text-gray-400">{{ comment.user.full_name }}</span>
+            <span class="text-[10px] text-gray-300">·</span>
+            <span class="text-[10px] text-gray-400">{{ comment.created_at.strftime('%d.%m %H:%M') }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-gray-400 text-center py-4">Комментариев пока нет</p>
+{% endif %}

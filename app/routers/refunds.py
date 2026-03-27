@@ -103,8 +103,9 @@ async def list_refunds(
 async def export_1c(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    single: Optional[int] = None,
 ):
-    """Export all refunds as CSV for 1C import."""
+    """Export refunds as XLSX for 1C import. Pass ?single=<id> to export one refund."""
     user = await get_current_user(request, db)
     if user.role.value not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -116,16 +117,18 @@ async def export_1c(
         selectinload(Refund.supplier),
         selectinload(Refund.items),
     ).order_by(Refund.created_at.desc())
+    if single:
+        query = query.where(Refund.id == single)
     result = await db.execute(query)
     refunds = result.scalars().all()
 
-    from app.services.ftp_service import build_1c_csv
-    csv_data = build_1c_csv(refunds)
+    from app.services.ftp_service import build_1c_xlsx
+    xlsx_data = build_1c_xlsx(refunds)
 
-    filename = f"export_1c_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"export_1c_{dt.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return Response(
-        content=csv_data,
-        media_type="text/csv; charset=utf-8-sig",
+        content=xlsx_data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

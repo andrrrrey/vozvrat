@@ -208,6 +208,32 @@
                 </div>
                 {% endif %}
             </div>
+
+            <!-- Staff Comments -->
+            {% if user.role.value in ('admin', 'staff') %}
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Комментарии</p>
+
+                <div id="comments-list" class="mb-3"
+                    hx-get="/api/refunds/{{ refund.id }}/comments"
+                    hx-trigger="load"
+                    hx-swap="innerHTML">
+                    <p class="text-xs text-gray-400 text-center py-4">Загрузка...</p>
+                </div>
+
+                <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
+                    <textarea id="comment-input" name="text" rows="2"
+                        placeholder="Добавить комментарий..."
+                        class="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('comment-form').dispatchEvent(new Event('submit'));}"></textarea>
+                    <button type="submit"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        Добавить
+                    </button>
+                </form>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Right: Chat (4 cols) -->
@@ -237,13 +263,7 @@
                         class="w-full bg-gray-50 rounded-xl px-3 py-2.5 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
                         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('chat-form').dispatchEvent(new Event('submit'));}"></textarea>
                     {% if user.role.value in ('admin', 'staff') %}
-                    <div class="flex items-center justify-between gap-2">
-                        <label class="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" id="staff-only-toggle" name="visibility" value="staff_only"
-                                onchange="this.value=this.checked?'staff_only':'all'"
-                                class="w-3.5 h-3.5 rounded accent-black">
-                            <span class="text-[10px] text-gray-500">Только для сотрудников</span>
-                        </label>
+                    <div class="flex justify-end">
                         <button type="submit"
                             class="flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition-colors">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
@@ -332,13 +352,7 @@ async function sendMessage(e) {
     if (!text) return;
 
     const data = new FormData(form);
-    // Handle visibility checkbox
-    const staffOnly = document.getElementById('staff-only-toggle');
-    if (staffOnly) {
-        data.set('visibility', staffOnly.checked ? 'staff_only' : 'all');
-    } else {
-        data.set('visibility', 'all');
-    }
+    data.set('visibility', 'all');
     data.set('text', text);
 
     try {
@@ -378,6 +392,34 @@ document.body.addEventListener('htmx:afterSettle', function(evt) {
         if (el._wasAtBottom !== false) scrollChatToBottom();
     }
 });
+
+// Staff comments
+async function sendComment(e) {
+    e.preventDefault();
+    const input = document.getElementById('comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const data = new FormData();
+    data.set('text', text);
+
+    try {
+        const res = await fetch('/api/refunds/{{ refund.id }}/comments', {
+            method: 'POST',
+            body: data,
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast('Ошибка: ' + (err.detail || 'Не удалось добавить комментарий'), 'error');
+            return;
+        }
+        const html = await res.text();
+        document.getElementById('comments-list').innerHTML = html;
+        input.value = '';
+    } catch {
+        showToast('Ошибка сети', 'error');
+    }
+}
 
 // Send email to supplier
 async function sendSupplierEmail(event, refundId, displayId) {
