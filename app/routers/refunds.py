@@ -168,9 +168,12 @@ async def refunds_table_partial(
     result = await db.execute(query)
     refunds = result.scalars().all()
 
+    from app.routers.notifications import get_unread_per_refund
+    unread_counts = await get_unread_per_refund(user, db)
+
     return templates.TemplateResponse(
         "refunds/_table_rows.html",
-        {"request": request, "refunds": refunds, "user": user},
+        {"request": request, "refunds": refunds, "user": user, "unread_counts": unread_counts},
     )
 
 

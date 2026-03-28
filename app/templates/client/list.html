@@ -24,8 +24,9 @@
     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Ваши возвраты</p>
     <div class="space-y-3">
         {% for refund in refunds %}
+        {% set unread = unread_counts.get(refund.id, 0) if unread_counts is defined else 0 %}
         <a href="/client/refunds/{{ refund.id }}"
-            class="block bg-white p-5 rounded-3xl shadow-sm border border-gray-100 hover:scale-[1.01] transition-transform cursor-pointer">
+            class="block bg-white p-5 rounded-3xl shadow-sm border {% if unread > 0 %}border-red-200{% else %}border-gray-100{% endif %} hover:scale-[1.01] transition-transform cursor-pointer">
             <div class="flex items-center gap-4">
                 <!-- Status icon -->
                 <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 {{ refund.status_color }} bg-opacity-50">
@@ -47,6 +48,11 @@
                         <p class="font-bold text-gray-900 mono text-sm">{{ refund.display_id }}</p>
                         {% if refund.order_id %}
                         <p class="text-xs text-gray-400">• {{ refund.order_id }}</p>
+                        {% endif %}
+                        {% if unread > 0 %}
+                        <span class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+                            {{ unread }} новых
+                        </span>
                         {% endif %}
                     </div>
                     {% if refund.items %}
