@@ -214,7 +214,7 @@
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Комментарии</p>
 
-                <div id="comments-list" class="mb-3"
+                <div id="comments-list" class="mb-3 max-h-64 overflow-y-auto"
                     hx-get="/api/refunds/{{ refund.id }}/comments"
                     hx-trigger="load"
                     hx-swap="innerHTML">
@@ -387,6 +387,10 @@ document.body.addEventListener('htmx:beforeSwap', function(evt) {
     }
 });
 document.body.addEventListener('htmx:afterSettle', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'comments-list') {
+        const el = evt.detail.target;
+        el.scrollTop = el.scrollHeight;
+    }
     if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
         const el = evt.detail.target;
         if (el._wasAtBottom !== false) scrollChatToBottom();
@@ -414,7 +418,9 @@ async function sendComment(e) {
             return;
         }
         const html = await res.text();
-        document.getElementById('comments-list').innerHTML = html;
+        const commentsList = document.getElementById('comments-list');
+        commentsList.innerHTML = html;
+        commentsList.scrollTop = commentsList.scrollHeight;
         input.value = '';
     } catch {
         showToast('Ошибка сети', 'error');
