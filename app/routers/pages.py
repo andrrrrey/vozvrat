@@ -14,6 +14,7 @@ from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.supplier import Supplier
 from app.models.file_attachment import FileType
 from app.services.auth import get_current_user, COOKIE_NAME
+from app.routers.notifications import get_unread_per_refund, mark_refund_read
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["pages"])
@@ -162,6 +163,8 @@ async def refunds_page(
     suppliers_result = await db.execute(select(Supplier).where(Supplier.is_active == True).order_by(Supplier.name))
     suppliers = suppliers_result.scalars().all()
 
+    unread_counts = await get_unread_per_refund(user, db)
+
     return templates.TemplateResponse("refunds/list.html", {
         "request": request,
         "user": user,
@@ -174,6 +177,7 @@ async def refunds_page(
         "current_date": date or "",
         "current_article": article or "",
         "current_order_id": order_id or "",
+        "unread_counts": unread_counts,
     })
 
 
@@ -229,6 +233,8 @@ async def refund_detail_page(
 
     if not refund:
         return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
+
+    await mark_refund_read(refund_id, user.id, db)
 
     from app.models.user import User as UserModel, UserRole
     clients_result = await db.execute(
@@ -365,10 +371,13 @@ async def client_refunds_page(request: Request, db: AsyncSession = Depends(get_d
     )
     refunds = result.scalars().all()
 
+    unread_counts = await get_unread_per_refund(user, db)
+
     return templates.TemplateResponse("client/list.html", {
         "request": request,
         "user": user,
         "refunds": refunds,
+        "unread_counts": unread_counts,
     })
 
 
@@ -398,6 +407,8 @@ async def client_refund_detail(
 
     if not refund:
         return RedirectResponse(url="/client/refunds", status_code=302)
+
+    await mark_refund_read(refund_id, user.id, db)
 
     ukd_file = next((f for f in refund.files if f.file_type.value == "pdf_ukd"), None)
 

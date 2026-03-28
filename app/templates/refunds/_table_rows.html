@@ -1,8 +1,19 @@
 {% for refund in refunds %}
+{% set unread = unread_counts.get(refund.id, 0) if unread_counts is defined else 0 %}
 <tr class="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onclick="window.location='/refunds/{{ refund.id }}'">
     <td class="px-6 py-4">
-        <p class="font-bold text-gray-900 mono text-sm">{{ refund.display_id }}</p>
-        <p class="text-xs text-gray-400 mt-0.5">{{ refund.created_at.strftime('%d.%m.%Y') }}</p>
+        <div class="flex items-center gap-2">
+            <div>
+                <p class="font-bold text-gray-900 mono text-sm">{{ refund.display_id }}</p>
+                <p class="text-xs text-gray-400 mt-0.5">{{ refund.created_at.strftime('%d.%m.%Y') }}</p>
+            </div>
+            {% if unread > 0 %}
+            <span class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none shrink-0"
+                title="{{ unread }} непрочитанных сообщений">
+                {{ unread }}
+            </span>
+            {% endif %}
+        </div>
     </td>
     <td class="px-6 py-4">
         <p class="font-medium text-gray-800 text-sm">{{ refund.client_name }}</p>

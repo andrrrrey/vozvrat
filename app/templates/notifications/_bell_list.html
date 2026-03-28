@@ -1,0 +1,28 @@
+{% if messages %}
+<div class="py-1">
+    {% for msg in messages %}
+    <a href="/refunds/{{ msg.refund_id }}"
+        class="flex flex-col gap-0.5 px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0 cursor-pointer">
+        <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-bold text-gray-900 mono">
+                {% if msg.refund %}{{ msg.refund.display_id }}{% else %}#{{ msg.refund_id }}{% endif %}
+            </span>
+            <span class="text-[10px] text-gray-400 shrink-0">
+                {{ msg.created_at.strftime('%d.%m %H:%M') }}
+            </span>
+        </div>
+        <p class="text-xs text-gray-600 line-clamp-2 leading-snug">
+            <span class="font-medium text-gray-700">{{ msg.user.full_name if msg.user else '—' }}:</span>
+            {{ msg.text[:80] }}{% if msg.text | length > 80 %}…{% endif %}
+        </p>
+        {% if msg.visibility.value == 'staff_only' %}
+        <span class="text-[9px] text-orange-500 font-bold uppercase tracking-wide mt-0.5">только для сотрудников</span>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="px-4 py-6 text-center">
+    <p class="text-sm text-gray-400">Нет новых уведомлений</p>
+</div>
+{% endif %}

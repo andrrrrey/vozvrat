@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.refund import Refund
 from app.models.message import Message, MessageVisibility
 from app.services.auth import get_current_user
+from app.routers.notifications import mark_refund_read
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/refunds", tags=["messages"])
@@ -48,6 +49,7 @@ async def get_messages(
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
     messages = await _load_messages(refund_id, user.role.value, db)
+    await mark_refund_read(refund_id, user.id, db)
 
     return templates.TemplateResponse(
         "refunds/_chat_messages.html",
@@ -95,6 +97,8 @@ async def send_message(
     )
     db.add(msg)
     await db.commit()
+    # Mark new message as read by sender immediately
+    await mark_refund_read(refund_id, user.id, db)
 
     messages = await _load_messages(refund_id, user.role.value, db)
 
@@ -129,6 +133,7 @@ async def get_comments(
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
     comments = await _load_comments(refund_id, db)
+    await mark_refund_read(refund_id, user.id, db)
     return templates.TemplateResponse(
         "refunds/_comments.html",
         {"request": request, "comments": comments, "user": user},
@@ -163,6 +168,7 @@ async def post_comment(
     )
     db.add(msg)
     await db.commit()
+    await mark_refund_read(refund_id, user.id, db)
 
     comments = await _load_comments(refund_id, db)
     return templates.TemplateResponse(
