@@ -22,11 +22,12 @@ templates = Jinja2Templates(directory=templates_dir)
 
 
 async def _load_messages(refund_id: int, user_role: str, db: AsyncSession) -> list[Message]:
+    # Chat shows only public messages (visibility=all) for all roles.
+    # Staff-only comments are shown exclusively in the comments block.
     q = select(Message).options(selectinload(Message.user)).where(
-        Message.refund_id == refund_id
+        Message.refund_id == refund_id,
+        Message.visibility == MessageVisibility.all,
     ).order_by(Message.created_at.asc())
-    if user_role == "client":
-        q = q.where(Message.visibility == MessageVisibility.all)
     result = await db.execute(q)
     return list(result.scalars().all())
 
