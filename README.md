@@ -38,7 +38,7 @@
 ```
 ┌──────────────┐    ┌────────────────────────────┐    ┌──────────────┐
 │   Браузер    │───▶│  Nginx (reverse proxy)     │───▶│  Uvicorn     │
-│  (HTMX)      │    │  vozvrat.futuguru.com       │    │  port 8000   │
+│  (HTMX)      │    │  vz.amx24.ru       │    │  port 8000   │
 └──────────────┘    └────────────────────────────┘    └──────┬───────┘
                                                              │
                     ┌──────────────────┐     ┌──────────────▼───────────┐
@@ -350,7 +350,7 @@ sudo nano /etc/nginx/sites-available/vozvrat
 ```nginx
 server {
     listen 80;
-    server_name vozvrat.futuguru.com;
+    server_name vz.amx24.ru;
 
     # Максимальный размер загружаемых файлов
     client_max_body_size 25M;
@@ -389,18 +389,18 @@ sudo systemctl reload nginx
 
 ### Шаг 1 — DNS-запись
 
-В панели управления DNS вашего домена `futuguru.com` добавьте A-запись:
+В панели управления DNS вашего домена `amx24.ru` добавьте A-запись:
 
 | Тип | Имя | Значение | TTL |
 |-----|-----|----------|-----|
-| A | vozvrat | `<IP вашего VPS>` | 3600 |
+| A | vz | `<IP вашего VPS>` | 3600 |
 
 Проверить распространение DNS (может занять до 24 часов):
 
 ```bash
-nslookup vozvrat.futuguru.com
+nslookup vz.amx24.ru
 # или
-dig vozvrat.futuguru.com +short
+dig vz.amx24.ru +short
 ```
 
 ### Шаг 2 — SSL-сертификат (Let's Encrypt)
@@ -408,7 +408,7 @@ dig vozvrat.futuguru.com +short
 После того как DNS-запись распространилась:
 
 ```bash
-sudo certbot --nginx -d vozvrat.futuguru.com
+sudo certbot --nginx -d vz.amx24.ru
 ```
 
 Certbot автоматически:
@@ -429,16 +429,16 @@ sudo certbot renew --dry-run
 ```nginx
 server {
     listen 80;
-    server_name vozvrat.futuguru.com;
+    server_name vz.amx24.ru;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl;
-    server_name vozvrat.futuguru.com;
+    server_name vz.amx24.ru;
 
-    ssl_certificate /etc/letsencrypt/live/vozvrat.futuguru.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/vozvrat.futuguru.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/vz.amx24.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/vz.amx24.ru/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
@@ -473,7 +473,7 @@ sudo systemctl status vozvrat
 sudo systemctl status nginx
 
 # Сайт доступен
-curl -I https://vozvrat.futuguru.com
+curl -I https://vz.amx24.ru
 ```
 
 ---
