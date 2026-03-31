@@ -204,8 +204,13 @@ DEBUG=false
 
 ```bash
 apt update && apt upgrade -y
+apt install -y software-properties-common
+add-apt-repository ppa:deadsnakes/ppa -y
+apt update
 apt install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib nginx certbot python3-certbot-nginx git
 ```
+
+> Если `python3.11` не нужен и на сервере уже есть Python 3.10+, можно пропустить добавление PPA и установить `python3-venv python3-pip` вместо `python3.11 python3.11-venv`. Тогда далее используйте `python3` вместо `python3.11`.
 
 ### Шаг 2 — Настройка PostgreSQL
 
