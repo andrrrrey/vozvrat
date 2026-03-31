@@ -203,22 +203,11 @@ DEBUG=false
 ### Шаг 1 — Обновление системы и установка зависимостей
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib nginx certbot python3-certbot-nginx git
+apt update && apt upgrade -y
+apt install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib nginx certbot python3-certbot-nginx git
 ```
 
-### Шаг 2 — Создание пользователя и директории приложения
-
-```bash
-# Создать системного пользователя для приложения
-sudo useradd -m -s /bin/bash vozvrat
-
-# Создать директорию
-sudo mkdir -p /var/www/vozvrat
-sudo chown vozvrat:vozvrat /var/www/vozvrat
-```
-
-### Шаг 3 — Настройка PostgreSQL
+### Шаг 2 — Настройка PostgreSQL
 
 ```bash
 sudo -u postgres psql << 'EOF'
@@ -230,15 +219,13 @@ EOF
 
 > Замените `STRONG_PASSWORD_HERE` на надёжный пароль.
 
-### Шаг 4 — Деплой кода
+### Шаг 3 — Деплой кода
 
 ```bash
-# Переключиться на пользователя vozvrat
-sudo su - vozvrat
-
 # Клонировать репозиторий
-git clone <repo-url> /var/www/vozvrat
-cd /var/www/vozvrat
+cd /root
+git clone https://github.com/andrrrrey/vozvrat.git
+cd /root/vozvrat
 
 # Создать виртуальное окружение
 python3.11 -m venv venv
@@ -267,31 +254,28 @@ MAIL_PASSWORD=your-app-password
 MAIL_FOLDER=INBOX
 MAIL_CHECK_INTERVAL_MINUTES=5
 
-UPLOAD_DIR=/var/www/vozvrat/uploads
+UPLOAD_DIR=/root/vozvrat/uploads
 MAX_UPLOAD_SIZE_MB=20
 DEBUG=false
 ```
 
 ```bash
 # Создать папку для загрузок
-mkdir -p /var/www/vozvrat/uploads
+mkdir -p /root/vozvrat/uploads
 
 # Применить миграции БД
 alembic upgrade head
 
 # (Опционально) загрузить демо-данные
 python -m app.seed
-
-# Выйти из пользователя vozvrat
-exit
 ```
 
-### Шаг 5 — Настройка systemd сервиса
+### Шаг 4 — Настройка systemd сервиса
 
 Создать файл сервиса:
 
 ```bash
-sudo nano /etc/systemd/system/vozvrat.service
+nano /etc/systemd/system/vozvrat.service
 ```
 
 Содержимое:
@@ -304,11 +288,11 @@ Requires=postgresql.service
 
 [Service]
 Type=simple
-User=vozvrat
-Group=vozvrat
-WorkingDirectory=/var/www/vozvrat
-EnvironmentFile=/var/www/vozvrat/.env
-ExecStart=/var/www/vozvrat/venv/bin/uvicorn app.main:app \
+User=root
+Group=root
+WorkingDirectory=/root/vozvrat
+EnvironmentFile=/root/vozvrat/.env
+ExecStart=/root/vozvrat/venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 2 \
@@ -326,15 +310,15 @@ WantedBy=multi-user.target
 Запустить сервис:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable vozvrat
-sudo systemctl start vozvrat
+systemctl daemon-reload
+systemctl enable vozvrat
+systemctl start vozvrat
 
 # Проверить статус
-sudo systemctl status vozvrat
+systemctl status vozvrat
 
 # Просмотр логов
-sudo journalctl -u vozvrat -f
+journalctl -u vozvrat -f
 ```
 
 ### Шаг 6 — Настройка Nginx
@@ -342,7 +326,7 @@ sudo journalctl -u vozvrat -f
 Создать конфигурацию сайта:
 
 ```bash
-sudo nano /etc/nginx/sites-available/vozvrat
+nano /etc/nginx/sites-available/vozvrat
 ```
 
 Содержимое (HTTP, до получения SSL):
@@ -368,7 +352,7 @@ server {
 
     # Статические файлы напрямую через Nginx (быстрее)
     location /static/ {
-        alias /var/www/vozvrat/app/static/;
+        alias /root/vozvrat/app/static/;
         expires 7d;
         add_header Cache-Control "public";
     }
@@ -378,9 +362,9 @@ server {
 Активировать конфиг:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/vozvrat /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+ln -s /etc/nginx/sites-available/vozvrat /etc/nginx/sites-enabled/
+nginx -t
+systemctl reload nginx
 ```
 
 ---
@@ -408,7 +392,7 @@ dig vz.amx24.ru +short
 После того как DNS-запись распространилась:
 
 ```bash
-sudo certbot --nginx -d vz.amx24.ru
+certbot --nginx -d vz.amx24.ru
 ```
 
 Certbot автоматически:
@@ -419,7 +403,7 @@ Certbot автоматически:
 Проверить автообновление сертификата:
 
 ```bash
-sudo certbot renew --dry-run
+certbot renew --dry-run
 ```
 
 ### Шаг 3 — Итоговая конфигурация Nginx (после certbot)
@@ -456,7 +440,7 @@ server {
     }
 
     location /static/ {
-        alias /var/www/vozvrat/app/static/;
+        alias /root/vozvrat/app/static/;
         expires 7d;
         add_header Cache-Control "public";
     }
@@ -467,10 +451,10 @@ server {
 
 ```bash
 # Приложение запущено
-sudo systemctl status vozvrat
+systemctl status vozvrat
 
 # Nginx работает
-sudo systemctl status nginx
+systemctl status nginx
 
 # Сайт доступен
 curl -I https://vz.amx24.ru
@@ -481,8 +465,7 @@ curl -I https://vz.amx24.ru
 ## Обновление приложения
 
 ```bash
-sudo su - vozvrat
-cd /var/www/vozvrat
+cd /root/vozvrat
 
 # Получить изменения
 git pull origin main
@@ -496,11 +479,8 @@ pip install -r requirements.txt
 # Применить новые миграции (если есть)
 alembic upgrade head
 
-# Выйти
-exit
-
 # Перезапустить сервис
-sudo systemctl restart vozvrat
+systemctl restart vozvrat
 ```
 
 ---
@@ -586,19 +566,18 @@ sudo systemctl restart vozvrat
 
 ```bash
 # Логи приложения
-sudo journalctl -u vozvrat -f --since "1 hour ago"
+journalctl -u vozvrat -f --since "1 hour ago"
 
 # Логи Nginx
-sudo tail -f /var/log/nginx/error.log
-sudo tail -f /var/log/nginx/access.log
+tail -f /var/log/nginx/error.log
+tail -f /var/log/nginx/access.log
 
 # Статус PostgreSQL
-sudo systemctl status postgresql
+systemctl status postgresql
 sudo -u postgres psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='vozvrat';"
 
 # Тест соединения с БД
-sudo su - vozvrat
-cd /var/www/vozvrat && source venv/bin/activate
+cd /root/vozvrat && source venv/bin/activate
 python -c "import asyncio; from app.database import engine; print('DB OK')"
 
 # Проверить порт приложения
