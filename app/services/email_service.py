@@ -33,7 +33,10 @@ def _send_smtp_sync(smtp: dict, msg: EmailMessage) -> None:
     # Resolve hostname to IPv4 to avoid "Network is unreachable" on servers without IPv6
     resolved = socket.getaddrinfo(host, port, socket.AF_INET)[0][4][0]
 
-    if use_tls:
+    if port == 465:
+        # Port 465 requires implicit SSL
+        conn = smtplib.SMTP_SSL(resolved, port, timeout=15)
+    elif use_tls:
         conn = smtplib.SMTP(resolved, port, timeout=15)
         conn.ehlo()
         conn.starttls()
