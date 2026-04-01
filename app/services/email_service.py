@@ -25,17 +25,21 @@ async def _get_smtp_settings(db: AsyncSession) -> dict:
 
 
 def _send_smtp_sync(smtp: dict, msg: EmailMessage) -> None:
+    import socket
     host = smtp["host"]
     port = smtp["port"]
     use_tls = smtp["use_tls"]
 
+    # Resolve hostname to IPv4 to avoid "Network is unreachable" on servers without IPv6
+    resolved = socket.getaddrinfo(host, port, socket.AF_INET)[0][4][0]
+
     if use_tls:
-        conn = smtplib.SMTP(host, port, timeout=15)
+        conn = smtplib.SMTP(resolved, port, timeout=15)
         conn.ehlo()
         conn.starttls()
         conn.ehlo()
     else:
-        conn = smtplib.SMTP(host, port, timeout=15)
+        conn = smtplib.SMTP(resolved, port, timeout=15)
 
     try:
         if smtp["user"] and smtp["password"]:

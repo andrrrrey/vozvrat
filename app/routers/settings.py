@@ -71,11 +71,14 @@ async def test_smtp(request: Request, db: AsyncSession = Depends(get_db)):
         return JSONResponse({"ok": False, "message": "SMTP хост не настроен"}, status_code=400)
 
     def _check():
+        import socket
+        # Resolve hostname to IPv4 to avoid "Network is unreachable" on servers without IPv6
+        resolved = socket.getaddrinfo(host, port, socket.AF_INET)[0][4][0]
         if use_tls:
-            conn = smtplib.SMTP(host, port, timeout=10)
+            conn = smtplib.SMTP(resolved, port, timeout=10)
             conn.starttls()
         else:
-            conn = smtplib.SMTP(host, port, timeout=10)
+            conn = smtplib.SMTP(resolved, port, timeout=10)
         try:
             if smtp_user and smtp_pass:
                 conn.login(smtp_user, smtp_pass)
