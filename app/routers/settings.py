@@ -74,9 +74,14 @@ async def test_smtp(request: Request, db: AsyncSession = Depends(get_db)):
         import socket
         # Resolve hostname to IPv4 to avoid "Network is unreachable" on servers without IPv6
         resolved = socket.getaddrinfo(host, port, socket.AF_INET)[0][4][0]
-        if use_tls:
+        if port == 465:
+            # Port 465 requires implicit SSL
+            conn = smtplib.SMTP_SSL(resolved, port, timeout=10)
+        elif use_tls:
             conn = smtplib.SMTP(resolved, port, timeout=10)
+            conn.ehlo()
             conn.starttls()
+            conn.ehlo()
         else:
             conn = smtplib.SMTP(resolved, port, timeout=10)
         try:
