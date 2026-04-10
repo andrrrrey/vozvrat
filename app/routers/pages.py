@@ -310,11 +310,15 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         return RedirectResponse(url="/refunds", status_code=302)
 
     from app.services.mail_reader import fetch_recent_emails
+    from app.services.settings_service import get_setting
     from app.config import settings as cfg
 
     imap_configured = bool(cfg.MAIL_LOGIN and cfg.MAIL_PASSWORD)
     emails = []
     fetch_error = None
+    auto_create_enabled = False
+    refund_uids = set()
+
     if imap_configured:
         try:
             emails = fetch_recent_emails(limit=20)
@@ -322,12 +326,26 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
             logger.error(f"Failed to fetch emails for viewer: {e}", exc_info=True)
             fetch_error = str(e)
 
+        auto_create_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
+
+        # Get email UIDs that have linked refunds
+        result = await db.execute(
+            select(Refund.email_uid).where(
+                Refund.source == RefundSource.email,
+                Refund.email_uid.isnot(None),
+            )
+        )
+        refund_uids = set(r[0] for r in result.all())
+
     return templates.TemplateResponse("emails/list.html", {
         "request": request,
         "user": user,
         "emails": emails,
         "imap_configured": imap_configured,
         "fetch_error": fetch_error,
+        "auto_create_enabled": auto_create_enabled,
+        "refund_uids": refund_uids,
+        "index_offset": 0,
     })
 
 

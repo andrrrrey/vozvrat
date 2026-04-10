@@ -22,6 +22,9 @@ SETTING_KEYS = {
     # Supplier email test mode
     "supplier_email_test_mode": "false",
     "supplier_email_test_address": "",
+    # Auto-create refunds from emails
+    "mail_auto_create_enabled": "false",
+    "mail_auto_create_since": "",
 }
 
 

@@ -113,9 +113,11 @@ def _get_attachments(msg: email.message.Message) -> list[dict]:
     return attachments
 
 
-def fetch_recent_emails(limit: int = 20) -> list[dict]:
+def fetch_recent_emails(limit: int = 20, offset: int = 0) -> list[dict]:
     """
-    Fetch the last `limit` emails from IMAP (read-only, no marking as seen).
+    Fetch emails from IMAP (read-only, no marking as seen).
+    Uses offset for pagination: offset=0 returns newest `limit` emails,
+    offset=20 returns the next 20, etc.
     Returns a list of dicts with email metadata, body, and attachment info.
     """
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
@@ -133,10 +135,11 @@ def fetch_recent_emails(limit: int = 20) -> list[dict]:
         _, uid_data = conn.uid("SEARCH", None, "ALL")
         uids = uid_data[0].split() if uid_data[0] else []
 
-        # Take the last N UIDs (newest emails are at the end of IMAP)
-        if len(uids) > limit:
-            uids = uids[-limit:]
-        uids = list(reversed(uids))  # newest first
+        # Reverse to get newest first, then apply offset and limit
+        uids = list(reversed(uids))
+        if offset > 0:
+            uids = uids[offset:]
+        uids = uids[:limit]
 
         for uid_bytes in uids:
             try:
