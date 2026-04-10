@@ -349,6 +349,7 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             reason=reason,
             email_subject=subject[:500],
             email_from=from_header[:255],
+            email_uid=uid,
         )
         db.add(refund)
         await db.flush()
@@ -439,6 +440,20 @@ async def process_emails(db: AsyncSession) -> int:
         logger.warning("IMAP credentials not configured, skipping mail import")
         return 0
 
+    # Check if auto-create is enabled
+    from app.services.settings_service import get_setting
+    auto_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
+    if not auto_enabled:
+        return 0
+
+    auto_since_str = await get_setting(db, "mail_auto_create_since")
+    auto_since = None
+    if auto_since_str:
+        try:
+            auto_since = datetime.fromisoformat(auto_since_str)
+        except ValueError:
+            logger.warning(f"Invalid mail_auto_create_since value: {auto_since_str}")
+
     processed = 0
     skipped = 0
     try:
@@ -447,27 +462,28 @@ async def process_emails(db: AsyncSession) -> int:
         conn.select(settings.MAIL_FOLDER)
 
         search_criteria = _build_imap_search_criteria()
-        _, message_ids = conn.search(None, search_criteria)
-        ids = message_ids[0].split() if message_ids[0] else []
+        _, uid_data = conn.uid("SEARCH", None, search_criteria)
+        uids = uid_data[0].split() if uid_data[0] else []
 
         limit = settings.MAIL_FETCH_LIMIT
-        total_found = len(ids)
+        total_found = len(uids)
         if limit > 0 and total_found > limit:
-            # Take oldest first (lower IDs), leave the rest for next cycle
-            ids = ids[:limit]
+            # Take oldest first (lower UIDs), leave the rest for next cycle
+            uids = uids[:limit]
             logger.info(f"Found {total_found} unseen emails, processing first {limit} this cycle")
         else:
             logger.info(f"Found {total_found} unseen emails")
 
-        for msg_id in ids:
+        for uid_bytes in uids:
             try:
-                accepted = await _process_single_email(conn, msg_id, db)
+                uid_str = uid_bytes.decode() if isinstance(uid_bytes, bytes) else str(uid_bytes)
+                accepted = await _process_single_email(conn, uid_str, db, auto_since=auto_since)
                 if accepted:
                     processed += 1
                 else:
                     skipped += 1
             except Exception as e:
-                logger.error(f"Error processing email {msg_id}: {e}", exc_info=True)
+                logger.error(f"Error processing email uid={uid_bytes}: {e}", exc_info=True)
 
         if skipped:
             logger.info(f"Skipped {skipped} emails (did not pass filters)")
@@ -478,9 +494,16 @@ async def process_emails(db: AsyncSession) -> int:
     return processed
 
 
-async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: AsyncSession) -> bool:
-    """Process one email. Returns True if refund was created, False if filtered out."""
-    _, msg_data = conn.fetch(msg_id, "(RFC822)")
+async def _process_single_email(
+    conn: imaplib.IMAP4_SSL,
+    uid: str,
+    db: AsyncSession,
+    auto_since: Optional[datetime] = None,
+) -> bool:
+    """Process one email by UID. Returns True if refund was created, False if filtered out."""
+    _, msg_data = conn.uid("FETCH", uid.encode(), "(RFC822)")
+    if not msg_data or not msg_data[0]:
+        return False
     raw = msg_data[0][1]
     msg = email.message_from_bytes(raw)
 
@@ -488,20 +511,31 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
     from_header = decode_str(msg.get("From", ""))
     client_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
 
+    # --- Date filter: skip emails received before auto-create was enabled ---
+    if auto_since:
+        from email.utils import parsedate_to_datetime
+        try:
+            email_date = parsedate_to_datetime(msg.get("Date", ""))
+            if email_date < auto_since:
+                logger.debug(f"Skipped (before auto-create enabled): subject='{subject}' date={email_date}")
+                return False
+        except Exception:
+            pass  # If date parsing fails, proceed with other filters
+
     # --- Фильтрация ---
     if not _is_allowed_sender(from_header):
         logger.debug(f"Skipped (sender not in whitelist): from='{from_header}'")
-        conn.store(msg_id, "+FLAGS", "\\Seen")
+        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
 
     if not _has_subject_keyword(subject):
         logger.debug(f"Skipped (no keyword in subject): subject='{subject}'")
-        conn.store(msg_id, "+FLAGS", "\\Seen")
+        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
 
     if settings.MAIL_REQUIRE_XLS and not _has_xls_attachment(msg):
         logger.debug(f"Skipped (no XLS attachment): subject='{subject}' from='{from_header}'")
-        conn.store(msg_id, "+FLAGS", "\\Seen")
+        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
     # ------------------
 
@@ -528,6 +562,7 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
         reason=reason,
         email_subject=subject[:500],
         email_from=from_header[:255],
+        email_uid=uid,
     )
     db.add(refund)
     await db.flush()
@@ -602,6 +637,6 @@ async def _process_single_email(conn: imaplib.IMAP4_SSL, msg_id: bytes, db: Asyn
         db.add(attachment)
 
     await db.flush()
-    conn.store(msg_id, "+FLAGS", "\\Seen")
-    logger.info(f"Created refund {display_id} (id={refund.id}) from email")
+    conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
+    logger.info(f"Created refund {display_id} (id={refund.id}) from email uid={uid}")
     return True

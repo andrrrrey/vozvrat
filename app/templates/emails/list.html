@@ -8,7 +8,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h2 class="text-2xl font-bold text-gray-900">Входящие письма</h2>
-            <p class="text-sm text-gray-500 mt-1">Последние 20 писем из почтового ящика</p>
+            <p class="text-sm text-gray-500 mt-1">Письма из почтового ящика</p>
         </div>
         <a href="/emails"
            class="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
@@ -19,6 +19,29 @@
             Обновить
         </a>
     </div>
+
+    <!-- Auto-create toggle -->
+    {% if imap_configured %}
+    <div class="bg-white border border-gray-200 rounded-2xl px-5 py-4 mb-6 flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-gray-900 text-sm">Автоматическое создание заявок</p>
+            <p class="text-xs text-gray-500 mt-0.5">
+                При включении система будет автоматически создавать заявки из новых входящих писем по установленным правилам и фильтрам
+            </p>
+        </div>
+        <button type="button"
+                id="auto-create-toggle"
+                onclick="toggleAutoCreate()"
+                class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2
+                       {% if auto_create_enabled %}bg-emerald-500{% else %}bg-gray-200{% endif %}"
+                role="switch"
+                aria-checked="{{ 'true' if auto_create_enabled else 'false' }}">
+            <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out
+                         {% if auto_create_enabled %}translate-x-5{% else %}translate-x-0{% endif %}"
+                  id="auto-create-dot"></span>
+        </button>
+    </div>
+    {% endif %}
 
     <!-- IMAP not configured -->
     {% if not imap_configured %}
@@ -62,200 +85,22 @@
 
     <!-- Email list -->
     <div class="space-y-3" id="email-list">
-        {% for em in emails %}
-        <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm
-                    {% if not em.is_seen %}ring-2 ring-blue-100 border-blue-200{% endif %}"
-             id="email-card-{{ loop.index }}">
+        {% set index_offset = 0 %}
+        {% include "emails/_email_cards.html" %}
+    </div>
 
-            <!-- Email header row (clickable to expand) -->
-            <button type="button"
-                    onclick="toggleEmail({{ loop.index }})"
-                    class="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors flex items-start gap-4">
-
-                <!-- Unread dot -->
-                <div class="mt-1.5 shrink-0">
-                    {% if not em.is_seen %}
-                    <div class="w-2.5 h-2.5 rounded-full bg-blue-500" title="Непрочитанное"></div>
-                    {% else %}
-                    <div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
-                    {% endif %}
-                </div>
-
-                <!-- Email info -->
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <p class="font-semibold text-gray-900 truncate {% if not em.is_seen %}text-black{% endif %}">
-                                {{ em.subject }}
-                            </p>
-                            <p class="text-sm text-gray-600 truncate mt-0.5">
-                                <span class="font-medium">{{ em.from_name }}</span>
-                                {% if em.from_email and em.from_email != em.from_name %}
-                                <span class="text-gray-400">&lt;{{ em.from_email }}&gt;</span>
-                                {% endif %}
-                            </p>
-                        </div>
-                        <div class="shrink-0 text-right">
-                            {% if em.date %}
-                            <p class="text-xs text-gray-500 whitespace-nowrap">
-                                {{ em.date.strftime('%d.%m.%Y') }}
-                            </p>
-                            <p class="text-xs text-gray-400">
-                                {{ em.date.strftime('%H:%M') }}
-                            </p>
-                            {% else %}
-                            <p class="text-xs text-gray-400">—</p>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <!-- Attachment badges + expand indicator -->
-                    <div class="flex items-center gap-2 mt-2 flex-wrap">
-                        {% if em.attachments %}
-                        {% for att in em.attachments %}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
-                                     {% if att.is_xls %}bg-green-100 text-green-700
-                                     {% elif att.is_image %}bg-purple-100 text-purple-700
-                                     {% elif att.is_pdf %}bg-red-100 text-red-700
-                                     {% else %}bg-gray-100 text-gray-600{% endif %}">
-                            {% if att.is_xls %}
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                            </svg>
-                            {% elif att.is_image %}
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                            </svg>
-                            {% elif att.is_pdf %}
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-                            </svg>
-                            {% else %}
-                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                            </svg>
-                            {% endif %}
-                            {{ att.filename | truncate(30, True) }}
-                            <span class="text-gray-400">({{ (att.size / 1024) | round(0) | int }} KB)</span>
-                        </span>
-                        {% endfor %}
-                        {% else %}
-                        <span class="text-xs text-gray-400">Без вложений</span>
-                        {% endif %}
-
-                        <!-- Expand chevron -->
-                        <span class="ml-auto text-gray-400 transition-transform duration-200"
-                              id="chevron-{{ loop.index }}">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                            </svg>
-                        </span>
-                    </div>
-                </div>
-            </button>
-
-            <!-- Expanded body (hidden by default) -->
-            <div id="email-body-{{ loop.index }}" class="hidden border-t border-gray-100">
-                <div class="px-5 py-4">
-
-                    <!-- Full from / date -->
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-4 bg-gray-50 rounded-xl p-3">
-                        <div>
-                            <span class="text-gray-400 text-xs uppercase tracking-wide font-medium">От кого</span>
-                            <p class="text-gray-900 font-medium mt-0.5">{{ em.from_header }}</p>
-                        </div>
-                        <div>
-                            <span class="text-gray-400 text-xs uppercase tracking-wide font-medium">Дата</span>
-                            <p class="text-gray-900 font-medium mt-0.5">
-                                {% if em.date %}{{ em.date.strftime('%d.%m.%Y %H:%M') }}{% else %}{{ em.date_str }}{% endif %}
-                            </p>
-                        </div>
-                        <div class="col-span-2">
-                            <span class="text-gray-400 text-xs uppercase tracking-wide font-medium">Тема</span>
-                            <p class="text-gray-900 font-medium mt-0.5">{{ em.subject }}</p>
-                        </div>
-                    </div>
-
-                    <!-- Body text -->
-                    {% if em.body %}
-                    <div class="mb-4">
-                        <p class="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">Содержание</p>
-                        <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed max-h-80 overflow-y-auto">{{ em.body }}</div>
-                    </div>
-                    {% else %}
-                    <div class="mb-4 text-sm text-gray-400 italic">Тело письма пустое или не удалось прочитать.</div>
-                    {% endif %}
-
-                    <!-- Attachments detail -->
-                    {% if em.attachments %}
-                    <div class="mb-4">
-                        <p class="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">Прикреплённые файлы</p>
-                        <div class="space-y-1.5">
-                            {% for att in em.attachments %}
-                            <div class="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-xl text-sm">
-                                {% if att.is_xls %}
-                                <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                              d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                                    </svg>
-                                </div>
-                                {% elif att.is_image %}
-                                <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                                    </svg>
-                                </div>
-                                {% elif att.is_pdf %}
-                                <div class="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-                                    </svg>
-                                </div>
-                                {% else %}
-                                <div class="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                                    </svg>
-                                </div>
-                                {% endif %}
-
-                                <div class="flex-1 min-w-0">
-                                    <p class="font-medium text-gray-800 truncate">{{ att.filename }}</p>
-                                    <p class="text-xs text-gray-500">{{ att.content_type }} · {{ (att.size / 1024) | round(1) }} KB</p>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <!-- Create refund button -->
-                    <div class="flex justify-end pt-2 border-t border-gray-100">
-                        <form method="post" action="/api/refunds/from-email/{{ em.uid }}"
-                              onsubmit="return confirmCreateRefund(this)">
-                            <button type="submit"
-                                    class="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-gray-800 text-white text-sm font-semibold rounded-xl transition-colors">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M12 4v16m8-8H4"/>
-                                </svg>
-                                Создать заявку из письма
-                            </button>
-                        </form>
-                    </div>
-
-                </div>
-            </div>
-        </div>
-        {% endfor %}
+    <!-- Load more button -->
+    <div class="mt-6 text-center" id="load-more-container">
+        <button type="button"
+                id="load-more-btn"
+                onclick="loadMoreEmails()"
+                class="inline-flex items-center gap-2 px-6 py-3 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-xl transition-colors shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+            </svg>
+            Загрузить ещё
+        </button>
     </div>
     {% endif %}
 </div>
@@ -263,6 +108,9 @@
 
 {% block scripts %}
 <script>
+let currentOffset = {{ emails|length if emails else 0 }};
+let isLoadingMore = false;
+
 function toggleEmail(idx) {
     const body = document.getElementById('email-body-' + idx);
     const chevron = document.getElementById('chevron-' + idx);
@@ -277,6 +125,88 @@ function toggleEmail(idx) {
 
 function confirmCreateRefund(form) {
     return confirm('Создать заявку из этого письма?\nВсе вложенные файлы будут прикреплены к заявке.');
+}
+
+function toggleAutoCreate() {
+    const toggle = document.getElementById('auto-create-toggle');
+    const dot = document.getElementById('auto-create-dot');
+
+    toggle.disabled = true;
+    toggle.classList.add('opacity-50');
+
+    fetch('/api/emails/auto-create/toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.enabled) {
+            toggle.classList.remove('bg-gray-200');
+            toggle.classList.add('bg-emerald-500');
+            dot.classList.remove('translate-x-0');
+            dot.classList.add('translate-x-5');
+            toggle.setAttribute('aria-checked', 'true');
+        } else {
+            toggle.classList.remove('bg-emerald-500');
+            toggle.classList.add('bg-gray-200');
+            dot.classList.remove('translate-x-5');
+            dot.classList.add('translate-x-0');
+            toggle.setAttribute('aria-checked', 'false');
+        }
+    })
+    .catch(err => {
+        console.error('Toggle error:', err);
+        alert('Ошибка при переключении. Попробуйте снова.');
+    })
+    .finally(() => {
+        toggle.disabled = false;
+        toggle.classList.remove('opacity-50');
+    });
+}
+
+function loadMoreEmails() {
+    if (isLoadingMore) return;
+    isLoadingMore = true;
+
+    const btn = document.getElementById('load-more-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = `
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        Загрузка...
+    `;
+    btn.disabled = true;
+
+    fetch('/api/emails/load-more?offset=' + currentOffset)
+    .then(r => r.text())
+    .then(html => {
+        if (!html.trim() || html.includes('Больше писем нет')) {
+            document.getElementById('load-more-container').innerHTML =
+                '<p class="text-gray-400 text-sm py-4">Больше писем нет</p>';
+            return;
+        }
+
+        const emailList = document.getElementById('email-list');
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        const newCards = tempDiv.querySelectorAll('[id^="email-card-"]');
+        currentOffset += newCards.length;
+
+        emailList.insertAdjacentHTML('beforeend', html);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    })
+    .catch(err => {
+        console.error('Load more error:', err);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        alert('Ошибка при загрузке писем. Попробуйте снова.');
+    })
+    .finally(() => {
+        isLoadingMore = false;
+    });
 }
 </script>
 {% endblock %}

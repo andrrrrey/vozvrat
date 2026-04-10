@@ -11,7 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import engine, AsyncSessionLocal
-from app.routers import auth, refunds, suppliers, users, files, pages, messages, notifications
+from app.routers import auth, refunds, suppliers, users, files, pages, messages, notifications, emails
 from app.routers import settings as settings_router
 
 logging.basicConfig(
@@ -46,9 +46,11 @@ async def mail_check_job():
     async with AsyncSessionLocal() as db:
         try:
             count = await process_emails(db)
+            await db.commit()
             if count > 0:
                 logger.info(f"Mail import: processed {count} emails")
         except Exception as e:
+            await db.rollback()
             logger.error(f"Mail import job error: {e}", exc_info=True)
 
 
@@ -103,4 +105,5 @@ app.include_router(files.router)
 app.include_router(settings_router.router)
 app.include_router(messages.router)
 app.include_router(notifications.router)
+app.include_router(emails.router)
 app.include_router(pages.router)
