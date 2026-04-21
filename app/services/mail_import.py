@@ -127,7 +127,9 @@ def _has_xls_attachment(msg: email.message.Message) -> bool:
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
             continue
-        if part.get("Content-Disposition") is None:
+        # Some clients omit Content-Disposition but still set a filename in Content-Type;
+        # align with the attachment processing loop which also skips the disposition check.
+        if part.get_content_type() in ("text/plain", "text/html"):
             continue
         filename = part.get_filename()
         if not filename:

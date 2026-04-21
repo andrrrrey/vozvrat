@@ -89,6 +89,7 @@ function openSupplierModal(supplierId) {
 
     fetch(url).then(r => r.text()).then(html => {
         content.innerHTML = html;
+        htmx.process(content);
         modal.classList.remove('hidden');
         modal.classList.add('flex');
     });
