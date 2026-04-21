@@ -264,6 +264,14 @@ def parse_body_data(text: str) -> dict:
         [rf'[Пп]роизводитель\s*:\s*(.+?){_STOP}', rf'[Бб]ренд\s*:\s*(.+?){_STOP}'],
         text,
     )
+
+    # Short fields must not span newlines: strip trailing commas/spaces and take first line only.
+    # Without this, "Артикул: C7294LR,Производитель: ..." leaves a trailing comma in article,
+    # and a brand pattern with re.DOTALL can swallow the entire email body into VARCHAR(255).
+    if result.get("article"):
+        result["article"] = result["article"].split('\n')[0].rstrip(', ').strip() or None
+    if result.get("brand"):
+        result["brand"] = result["brand"].split('\n')[0].rstrip(', ').strip() or None
     qty_str = _find(
         [r'[Кк]оличество\s*:\s*(\d+)', r'[Кк]ол-?во\s*:\s*(\d+)'],
         text,
@@ -366,8 +374,8 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         if parsed.get("article") and not xls_items_created:
             item = RefundItem(
                 refund_id=refund.id,
-                article=parsed["article"],
-                brand=parsed.get("brand"),
+                article=parsed["article"][:255],
+                brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
                 quantity=parsed.get("quantity", 1),
                 price=0,
                 description=parsed.get("description"),
@@ -406,8 +414,8 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
                     for item_data in items:
                         item = RefundItem(
                             refund_id=refund.id,
-                            article=item_data["article"],
-                            brand=item_data.get("brand"),
+                            article=item_data["article"][:255],
+                            brand=item_data.get("brand", "")[:255] if item_data.get("brand") else None,
                             quantity=item_data.get("quantity", 1),
                             price=item_data.get("price", 0),
                             description=item_data.get("description"),
@@ -579,8 +587,8 @@ async def _process_single_email(
     if parsed.get("article"):
         item = RefundItem(
             refund_id=refund.id,
-            article=parsed["article"],
-            brand=parsed.get("brand"),
+            article=parsed["article"][:255],
+            brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
             quantity=parsed.get("quantity", 1),
             price=0,
             description=parsed.get("description"),
@@ -619,8 +627,8 @@ async def _process_single_email(
                 for item_data in items:
                     item = RefundItem(
                         refund_id=refund.id,
-                        article=item_data["article"],
-                        brand=item_data.get("brand"),
+                        article=item_data["article"][:255],
+                        brand=item_data.get("brand", "")[:255] if item_data.get("brand") else None,
                         quantity=item_data.get("quantity", 1),
                         price=item_data.get("price", 0),
                         description=item_data.get("description"),
