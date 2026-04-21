@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Optional
 from sqlalchemy import String, Boolean, Enum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -20,6 +21,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.staff)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), unique=True, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     # Relationships

@@ -17,6 +17,7 @@ from app.config import settings
 from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.file_attachment import FileAttachment, FileType
+from app.models.user import User, UserRole
 from app.services.file_service import detect_file_type
 
 logger = logging.getLogger(__name__)
@@ -229,6 +230,93 @@ def _parse_freeform_item(text: str) -> dict:
     return result
 
 
+def _parse_two_section_format(text: str) -> dict:
+    """
+    Parse two-section email body: column names on separate lines,
+    then a blank line, then values in the same order.
+    Example:
+        Артикул
+        Бренд
+        Кол-во к возврату
+
+        47034
+        MEAT & DORIA
+        1
+    Accounts for a subject/title line at the start of the header block (offset).
+    """
+    LABEL_FIELDS = [
+        (re.compile(r'^\s*[Аа]ртикул\.?$', re.I), 'article'),
+        (re.compile(r'^\s*([Бб]ренд|[Пп]роизводитель|[Мм]арка)$', re.I), 'brand'),
+        (re.compile(r'^\s*[Кк]ол', re.I), 'quantity'),
+        (re.compile(r'^\s*[Сс]умма$', re.I), 'price'),
+        (re.compile(r'^\s*[Пп]ричина', re.I), 'reason'),
+        (re.compile(r'^\s*[Кк]омментарий$', re.I), 'comment'),
+        (re.compile(r'^\s*ID\s+заказа$', re.I), 'order_id'),
+        (re.compile(r'^\s*[Нн]омер\s+заказа', re.I), 'order_id'),
+        (re.compile(r'^\s*ID\s+клиента$', re.I), 'client_ext_id'),
+    ]
+
+    def _match_label(line: str) -> Optional[str]:
+        for pat, field in LABEL_FIELDS:
+            if pat.search(line):
+                return field
+        return None
+
+    blocks = [b.strip() for b in re.split(r'\n[ \t]*\n', text) if b.strip()]
+
+    for bi in range(len(blocks) - 1):
+        hdr_lines = [l.strip() for l in blocks[bi].splitlines() if l.strip()]
+        val_lines = [l.strip() for l in blocks[bi + 1].splitlines() if l.strip()]
+
+        if not hdr_lines or not val_lines:
+            continue
+
+        # Count non-label prefix lines (e.g. email subject prepended before the body)
+        offset = 0
+        for line in hdr_lines:
+            if _match_label(line) is None:
+                offset += 1
+            else:
+                break
+
+        # Need at least 2 recognised label lines
+        label_count = sum(1 for l in hdr_lines if _match_label(l) is not None)
+        if label_count < 2:
+            continue
+
+        result: dict = {}
+        for j, line in enumerate(hdr_lines):
+            field = _match_label(line)
+            if field is None:
+                continue
+            val_idx = j - offset
+            if val_idx < 0 or val_idx >= len(val_lines):
+                continue
+            value = val_lines[val_idx].strip()
+            if not value or value in ('-', '—', 'None', 'null'):
+                continue
+
+            if field == 'quantity':
+                m = re.search(r'\d+', value)
+                if m:
+                    try:
+                        result[field] = int(m.group())
+                    except ValueError:
+                        pass
+            elif field == 'price':
+                try:
+                    result[field] = float(value.replace(',', '.').replace(' ', ''))
+                except ValueError:
+                    pass
+            elif field not in result:
+                result[field] = value
+
+        if len(result) >= 2:
+            return result
+
+    return {}
+
+
 def parse_body_data(text: str) -> dict:
     """
     Parse structured refund data from email body text.
@@ -255,6 +343,8 @@ def parse_body_data(text: str) -> dict:
         return None
 
     result = {}
+    result["price"] = None
+    result["client_ext_id"] = None
 
     result["article"] = _find(
         [rf'[Аа]ртикул\s*:\s*(.+?){_STOP}', rf'[Аа]рт\.\s*:\s*(.+?){_STOP}'],
@@ -298,6 +388,18 @@ def parse_body_data(text: str) -> dict:
         text,
     )
 
+    # Two-section format: column headers then values after blank line
+    if not result.get("article"):
+        two_sec = _parse_two_section_format(text)
+        if two_sec:
+            for _k in ('article', 'brand', 'order_id', 'reason', 'comment', 'client_ext_id'):
+                if not result.get(_k) and two_sec.get(_k):
+                    result[_k] = two_sec[_k]
+            if result.get('quantity', 1) == 1 and two_sec.get('quantity'):
+                result['quantity'] = two_sec['quantity']
+            if two_sec.get('price'):
+                result['price'] = two_sec['price']
+
     # Fallback: free-form parsing when structured labels are absent
     if not result.get("article"):
         freeform = _parse_freeform_item(text)
@@ -309,6 +411,38 @@ def parse_body_data(text: str) -> dict:
                 result["quantity"] = freeform["quantity"]
 
     return result
+
+
+async def _find_or_create_client(
+    db: AsyncSession,
+    client_ext_id: str,
+    client_name: Optional[str],
+) -> User:
+    """Look up a client User by external_id; create one if not found."""
+    result = await db.execute(select(User).where(User.external_id == client_ext_id))
+    user = result.scalar_one_or_none()
+    if user:
+        logger.debug(f"Found existing client by external_id={client_ext_id}: id={user.id}")
+        return user
+
+    from passlib.context import CryptContext
+    import secrets
+    pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    name = (client_name or f"Клиент {client_ext_id}")[:255]
+    placeholder_email = f"ext_client_{client_ext_id}@imported.local"
+    user = User(
+        email=placeholder_email,
+        password_hash=pwd_ctx.hash(secrets.token_urlsafe(24)),
+        full_name=name,
+        role=UserRole.client,
+        is_active=True,
+        external_id=client_ext_id,
+    )
+    db.add(user)
+    await db.flush()
+    logger.info(f"Auto-created client user id={user.id} external_id={client_ext_id} name='{name}'")
+    return user
 
 
 async def create_refund_from_uid(uid: str, db: AsyncSession):
@@ -342,6 +476,13 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
 
         client_name = parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
 
+        # Resolve client user from external ID if present in email
+        client_user_id = None
+        if parsed.get("client_ext_id"):
+            client_user = await _find_or_create_client(db, parsed["client_ext_id"], client_name)
+            client_user_id = client_user.id
+            client_name = client_user.full_name
+
         reason = parsed.get("reason")
         if parsed.get("comment"):
             reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
@@ -353,8 +494,9 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         refund = Refund(
             display_id=display_id,
             status=RefundStatus.received,
-            source=RefundSource.email,
+            source=RefundSource.email_manual,
             client_name=client_name[:255],
+            client_user_id=client_user_id,
             order_id=parsed.get("order_id"),
             reason=reason,
             email_subject=subject[:500],
@@ -377,7 +519,7 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
                 article=parsed["article"][:255],
                 brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
                 quantity=parsed.get("quantity", 1),
-                price=0,
+                price=parsed.get("price") or 0,
                 description=parsed.get("description"),
             )
             db.add(item)
@@ -434,6 +576,24 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             db.add(attachment)
 
         await db.flush()
+
+        # Upsert MailNotification linking this email to the new refund
+        from app.models.mail_notification import MailNotification
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy import update as sa_update
+        _notif_insert = pg_insert(MailNotification).values(
+            email_uid=uid,
+            subject=subject[:500] if subject else None,
+            from_email=email.utils.parseaddr(from_header)[1][:255],
+            from_name=(email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1])[:255],
+            refund_id=refund.id,
+            is_read=False,
+        ).on_conflict_do_update(
+            index_elements=['email_uid'],
+            set_={'refund_id': refund.id}
+        )
+        await db.execute(_notif_insert)
+
         conn.store(uid.encode(), "+FLAGS", "\\Seen")
         logger.info(f"Created refund {display_id} (id={refund.id}) from email UID={uid}")
         return refund
@@ -532,6 +692,20 @@ async def _process_single_email(
         except Exception:
             pass  # If date parsing fails, proceed with other filters
 
+    # Upsert MailNotification so the bell reflects all new emails
+    from app.models.mail_notification import MailNotification
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    sender_name_for_notif = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
+    notif_stmt = pg_insert(MailNotification).values(
+        email_uid=uid,
+        subject=subject[:500] if subject else None,
+        from_email=email.utils.parseaddr(from_header)[1][:255],
+        from_name=sender_name_for_notif[:255] if sender_name_for_notif else None,
+        refund_id=None,
+        is_read=False,
+    ).on_conflict_do_nothing(index_elements=['email_uid'])
+    await db.execute(notif_stmt)
+
     # --- Фильтрация ---
     if not _is_allowed_sender(from_header):
         logger.debug(f"Skipped (sender not in whitelist): from='{from_header}'")
@@ -555,6 +729,13 @@ async def _process_single_email(
 
     client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
 
+    # Resolve client user from external ID if present in email
+    client_user_id = None
+    if parsed.get("client_ext_id"):
+        client_user = await _find_or_create_client(db, parsed["client_ext_id"], client_name)
+        client_user_id = client_user.id
+        client_name = client_user.full_name
+
     reason = parsed.get("reason")
     if parsed.get("comment"):
         reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
@@ -568,6 +749,7 @@ async def _process_single_email(
         status=RefundStatus.received,
         source=RefundSource.email,
         client_name=client_name[:255],
+        client_user_id=client_user_id,
         order_id=parsed.get("order_id"),
         reason=reason,
         email_subject=subject[:500],
@@ -590,7 +772,7 @@ async def _process_single_email(
             article=parsed["article"][:255],
             brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
             quantity=parsed.get("quantity", 1),
-            price=0,
+            price=parsed.get("price") or 0,
             description=parsed.get("description"),
         )
         db.add(item)
@@ -647,6 +829,15 @@ async def _process_single_email(
         db.add(attachment)
 
     await db.flush()
+
+    # Link notification to the created refund
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(MailNotification)
+        .where(MailNotification.email_uid == uid)
+        .values(refund_id=refund.id)
+    )
+
     conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
     logger.info(f"Created refund {display_id} (id={refund.id}) from email uid={uid}")
     return True

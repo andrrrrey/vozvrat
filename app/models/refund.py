@@ -18,7 +18,8 @@ class RefundStatus(str, enum.Enum):
 
 class RefundSource(str, enum.Enum):
     manual = "manual"
-    email = "email"
+    email = "email"           # auto-created by scheduler
+    email_manual = "email_manual"  # manually created via "Создать заявку из письма"
 
 
 STATUS_LABELS = {

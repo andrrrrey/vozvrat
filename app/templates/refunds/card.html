@@ -23,6 +23,8 @@
             <p class="text-xs text-gray-500 mt-1">
                 {% if refund.source.value == 'email' %}
                 Создан автоматически из почты
+                {% elif refund.source.value == 'email_manual' %}
+                Создан из письма
                 {% else %}
                 Создан вручную
                 {% endif %}

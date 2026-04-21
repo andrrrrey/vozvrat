@@ -37,7 +37,7 @@ def _unread_condition(user_id: int):
 
 
 async def get_unread_total(user: User, db: AsyncSession) -> int:
-    """Total unread message count for a user across all accessible refunds."""
+    """Total unread count: messages + unread email notifications (for staff/admin)."""
     q = (
         select(func.count(Message.id))
         .where(
@@ -55,7 +55,16 @@ async def get_unread_total(user: User, db: AsyncSession) -> int:
                 )
             ),
         )
-    return (await db.execute(q)).scalar() or 0
+    msg_count = (await db.execute(q)).scalar() or 0
+
+    if user.role.value != "client":
+        from app.models.mail_notification import MailNotification
+        email_count = (await db.execute(
+            select(func.count(MailNotification.id)).where(MailNotification.is_read == False)
+        )).scalar() or 0
+        return msg_count + email_count
+
+    return msg_count
 
 
 async def get_unread_per_refund(user: User, db: AsyncSession) -> dict[int, int]:
@@ -162,15 +171,42 @@ async def recent_notifications(request: Request, db: AsyncSession = Depends(get_
             Message.user_id != user.id,
         )
         .order_by(Message.created_at.desc())
-        .limit(15)
+        .limit(10)
     )
     result = await db.execute(q)
     messages = result.scalars().all()
 
+    from app.models.mail_notification import MailNotification
+    notif_q = (
+        select(MailNotification)
+        .options(selectinload(MailNotification.refund))
+        .where(MailNotification.is_read == False)
+        .order_by(MailNotification.created_at.desc())
+        .limit(8)
+    )
+    notif_result = await db.execute(notif_q)
+    email_notifs = notif_result.scalars().all()
+
     return templates.TemplateResponse(
         "notifications/_bell_list.html",
-        {"request": request, "messages": messages, "user": user},
+        {"request": request, "messages": messages, "email_notifs": email_notifs, "user": user},
     )
+
+
+@router.post("/mark-emails-read", response_class=JSONResponse)
+async def mark_emails_read(request: Request, db: AsyncSession = Depends(get_db)):
+    """Mark all email notifications as read."""
+    try:
+        user = await get_current_user(request, db)
+    except Exception:
+        return JSONResponse({"ok": False})
+    if user.role.value == "client":
+        return JSONResponse({"ok": False})
+    from app.models.mail_notification import MailNotification
+    from sqlalchemy import update as sa_update
+    await db.execute(sa_update(MailNotification).values(is_read=True))
+    await db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/mark-read/{refund_id}", response_class=JSONResponse)
