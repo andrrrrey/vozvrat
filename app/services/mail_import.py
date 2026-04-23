@@ -1,3 +1,4 @@
+import asyncio
 import imaplib
 import email
 import logging
@@ -454,7 +455,8 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
         raise RuntimeError("IMAP credentials not configured")
 
-    conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
+    conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
+                              timeout=_IMAP_TIMEOUT)
     conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
     conn.select(settings.MAIL_FOLDER)
 
@@ -604,84 +606,129 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             pass
 
 
+_IMAP_TIMEOUT = 30  # seconds; prevents indefinite event-loop freeze
+
+
+def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]]:
+    """
+    Pure-sync IMAP fetch — runs in thread pool so the async event loop stays free.
+    Connects, searches, batch-fetches unseen emails, marks them as Seen, disconnects.
+    Returns list of (uid_str, raw_bytes).
+    """
+    results: list[tuple[str, bytes]] = []
+    conn = None
+    try:
+        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
+                                  timeout=_IMAP_TIMEOUT)
+        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
+        conn.select(settings.MAIL_FOLDER)
+
+        _, uid_data = conn.uid("SEARCH", None, criteria)
+        uids = uid_data[0].split() if uid_data[0] else []
+
+        total_found = len(uids)
+        if limit > 0 and total_found > limit:
+            uids = uids[:limit]
+            logger.info(f"Found {total_found} unseen emails, processing first {limit} this cycle")
+        else:
+            logger.info(f"Found {total_found} unseen emails")
+
+        if not uids:
+            return results
+
+        # Batch FETCH — one round trip instead of N
+        uid_list = b",".join(uids)
+        _, msg_data_list = conn.uid("FETCH", uid_list, "(RFC822)")
+
+        # Parse interleaved response: [(meta, raw), b')', ...]
+        uid_iter = iter(uids)
+        for item in msg_data_list:
+            if not isinstance(item, tuple) or len(item) < 2:
+                continue
+            raw = item[1]
+            if not raw:
+                continue
+            uid_bytes = next(uid_iter, None)
+            if uid_bytes is None:
+                break
+            uid_str = uid_bytes.decode() if isinstance(uid_bytes, bytes) else str(uid_bytes)
+            results.append((uid_str, raw))
+            # Mark as seen so we don't reprocess on next cycle
+            try:
+                conn.uid("STORE", uid_bytes, "+FLAGS", "\\Seen")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"IMAP sync fetch error: {e}", exc_info=True)
+    finally:
+        if conn:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+    return results
+
+
 async def process_emails(db: AsyncSession) -> int:
-    """Connect to IMAP, fetch unseen emails, create Refunds. Returns number processed."""
+    """Fetch unseen emails and create Refunds. IMAP runs in thread pool to avoid blocking event loop."""
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
         logger.warning("IMAP credentials not configured, skipping mail import")
         return 0
 
-    # Check if auto-create is enabled
     from app.services.settings_service import get_setting
     auto_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
     if not auto_enabled:
         return 0
 
     auto_since_str = await get_setting(db, "mail_auto_create_since")
-    auto_since = None
+    auto_since: Optional[datetime] = None
     if auto_since_str:
         try:
             auto_since = datetime.fromisoformat(auto_since_str)
         except ValueError:
             logger.warning(f"Invalid mail_auto_create_since value: {auto_since_str}")
 
+    criteria = _build_imap_search_criteria()
+    limit = settings.MAIL_FETCH_LIMIT
+
+    # Phase 1: IMAP (sync, thread pool) — does NOT block the event loop
+    loop = asyncio.get_event_loop()
+    raw_emails = await loop.run_in_executor(
+        None, lambda: _imap_fetch_unseen_sync(criteria, limit)
+    )
+
+    # Phase 2: process each fetched email with async DB
     processed = 0
     skipped = 0
-    try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
-        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-        conn.select(settings.MAIL_FOLDER)
+    for uid, raw in raw_emails:
+        try:
+            accepted = await _process_raw_email(uid, raw, db, auto_since=auto_since)
+            if accepted:
+                processed += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            logger.error(f"Error processing email uid={uid}: {e}", exc_info=True)
 
-        search_criteria = _build_imap_search_criteria()
-        _, uid_data = conn.uid("SEARCH", None, search_criteria)
-        uids = uid_data[0].split() if uid_data[0] else []
-
-        limit = settings.MAIL_FETCH_LIMIT
-        total_found = len(uids)
-        if limit > 0 and total_found > limit:
-            # Take oldest first (lower UIDs), leave the rest for next cycle
-            uids = uids[:limit]
-            logger.info(f"Found {total_found} unseen emails, processing first {limit} this cycle")
-        else:
-            logger.info(f"Found {total_found} unseen emails")
-
-        for uid_bytes in uids:
-            try:
-                uid_str = uid_bytes.decode() if isinstance(uid_bytes, bytes) else str(uid_bytes)
-                accepted = await _process_single_email(conn, uid_str, db, auto_since=auto_since)
-                if accepted:
-                    processed += 1
-                else:
-                    skipped += 1
-            except Exception as e:
-                logger.error(f"Error processing email uid={uid_bytes}: {e}", exc_info=True)
-
-        if skipped:
-            logger.info(f"Skipped {skipped} emails (did not pass filters)")
-        conn.logout()
-    except Exception as e:
-        logger.error(f"IMAP connection error: {e}", exc_info=True)
-
+    if skipped:
+        logger.info(f"Skipped {skipped} emails (did not pass filters)")
     return processed
 
 
-async def _process_single_email(
-    conn: imaplib.IMAP4_SSL,
+async def _process_raw_email(
     uid: str,
+    raw: bytes,
     db: AsyncSession,
     auto_since: Optional[datetime] = None,
 ) -> bool:
-    """Process one email by UID. Returns True if refund was created, False if filtered out."""
-    _, msg_data = conn.uid("FETCH", uid.encode(), "(RFC822)")
-    if not msg_data or not msg_data[0]:
-        return False
-    raw = msg_data[0][1]
+    """Process a pre-fetched raw email. Returns True if a refund was created."""
     msg = email.message_from_bytes(raw)
 
     subject = decode_str(msg.get("Subject", "Без темы"))
     from_header = decode_str(msg.get("From", ""))
     client_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
 
-    # --- Date filter: skip emails received before auto-create was enabled ---
+    # Date filter: skip emails received before auto-create was enabled
     if auto_since:
         from email.utils import parsedate_to_datetime
         try:
@@ -690,7 +737,7 @@ async def _process_single_email(
                 logger.debug(f"Skipped (before auto-create enabled): subject='{subject}' date={email_date}")
                 return False
         except Exception:
-            pass  # If date parsing fails, proceed with other filters
+            pass
 
     # Upsert MailNotification so the bell reflects all new emails
     from app.models.mail_notification import MailNotification
@@ -706,30 +753,23 @@ async def _process_single_email(
     ).on_conflict_do_nothing(index_elements=['email_uid'])
     await db.execute(notif_stmt)
 
-    # --- Фильтрация ---
     if not _is_allowed_sender(from_header):
         logger.debug(f"Skipped (sender not in whitelist): from='{from_header}'")
-        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
 
     if not _has_subject_keyword(subject):
         logger.debug(f"Skipped (no keyword in subject): subject='{subject}'")
-        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
 
     if settings.MAIL_REQUIRE_XLS and not _has_xls_attachment(msg):
         logger.debug(f"Skipped (no XLS attachment): subject='{subject}' from='{from_header}'")
-        conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         return False
-    # ------------------
 
     body_text = get_email_body_text(msg)
-    # Include subject in parsed text so the free-form extractor can use it
     parsed = parse_body_data(f"{subject}\n{body_text}")
 
     client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
 
-    # Resolve client user from external ID if present in email
     client_user_id = None
     if parsed.get("client_ext_id"):
         client_user = await _find_or_create_client(db, parsed["client_ext_id"], client_name)
@@ -765,7 +805,6 @@ async def _process_single_email(
 
     xls_items_created = False
 
-    # Create item from body text if article was found
     if parsed.get("article"):
         item = RefundItem(
             refund_id=refund.id,
@@ -777,17 +816,13 @@ async def _process_single_email(
         )
         db.add(item)
         xls_items_created = True
-        logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
 
     for part in msg.walk():
         if part.get_content_maintype() == "multipart":
             continue
-        # Accept attachments regardless of Content-Disposition value —
-        # some clients send images as inline or omit the header entirely.
         filename = part.get_filename()
         if not filename:
             continue
-        # Skip plain-text / HTML body parts that somehow have a name param
         if part.get_content_type() in ("text/plain", "text/html"):
             continue
 
@@ -817,7 +852,6 @@ async def _process_single_email(
                     )
                     db.add(item)
                 xls_items_created = True
-                logger.debug(f"Parsed {len(items)} items from XLS for refund {refund.id}")
 
         attachment = FileAttachment(
             refund_id=refund.id,
@@ -830,7 +864,6 @@ async def _process_single_email(
 
     await db.flush()
 
-    # Link notification to the created refund
     from sqlalchemy import update as sa_update
     await db.execute(
         sa_update(MailNotification)
@@ -838,6 +871,5 @@ async def _process_single_email(
         .values(refund_id=refund.id)
     )
 
-    conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
     logger.info(f"Created refund {display_id} (id={refund.id}) from email uid={uid}")
     return True

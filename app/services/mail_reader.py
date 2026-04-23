@@ -128,7 +128,7 @@ def fetch_recent_emails(limit: int = 20, offset: int = 0) -> list[dict]:
     emails = []
     conn = None
     try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
+        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT, timeout=30)
         conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
 
         # SELECT returns total message count — no SEARCH ALL needed

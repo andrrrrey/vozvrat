@@ -42,13 +42,18 @@ def _try_acquire_scheduler_lock() -> bool:
 
 async def mail_check_job():
     """Scheduled job to check and import emails."""
+    import asyncio
     from app.services.mail_import import process_emails
     async with AsyncSessionLocal() as db:
         try:
-            count = await process_emails(db)
+            # Timeout guards against a hung IMAP connection blocking the scheduler indefinitely
+            count = await asyncio.wait_for(process_emails(db), timeout=300)
             await db.commit()
             if count > 0:
                 logger.info(f"Mail import: processed {count} emails")
+        except asyncio.TimeoutError:
+            await db.rollback()
+            logger.error("Mail import job timed out after 300s — IMAP connection may be hung")
         except Exception as e:
             await db.rollback()
             logger.error(f"Mail import job error: {e}", exc_info=True)
