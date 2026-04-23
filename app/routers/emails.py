@@ -74,7 +74,9 @@ async def load_more_emails(
         return HTMLResponse("")
 
     try:
-        emails = fetch_recent_emails(limit=20, offset=offset)
+        import asyncio
+        loop = asyncio.get_event_loop()
+        emails = await loop.run_in_executor(None, lambda: fetch_recent_emails(limit=20, offset=offset))
     except Exception as e:
         logger.error(f"Failed to fetch more emails: {e}", exc_info=True)
         return HTMLResponse(f'<div class="text-red-500 text-sm p-4">Ошибка: {e}</div>')
@@ -87,7 +89,7 @@ async def load_more_emails(
     # Get email UIDs that have linked refunds
     result = await db.execute(
         select(Refund.email_uid).where(
-            Refund.source == RefundSource.email,
+            Refund.source.in_([RefundSource.email, RefundSource.email_manual]),
             Refund.email_uid.isnot(None),
         )
     )

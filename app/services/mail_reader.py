@@ -116,10 +116,11 @@ def _get_attachments(msg: email.message.Message) -> list[dict]:
 def fetch_recent_emails(limit: int = 20, offset: int = 0) -> list[dict]:
     """
     Fetch emails from IMAP (read-only, no marking as seen).
-    Uses offset for pagination: offset=0 returns newest `limit` emails,
-    offset=20 returns the next 20, etc.
-    Returns a list of dicts with email metadata, body, and attachment info.
+    Uses sequence numbers (not SEARCH ALL) for O(1) pagination — avoids
+    transferring thousands of UIDs over the wire on large mailboxes.
+    offset=0 → newest `limit` emails; offset=20 → next 20, etc.
     """
+    import re as _re
     if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
         logger.warning("IMAP credentials not configured, cannot fetch emails")
         return []
@@ -129,67 +130,85 @@ def fetch_recent_emails(limit: int = 20, offset: int = 0) -> list[dict]:
     try:
         conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT)
         conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-        conn.select(settings.MAIL_FOLDER, readonly=True)
 
-        # Use UID SEARCH for stable identifiers
-        _, uid_data = conn.uid("SEARCH", None, "ALL")
-        uids = uid_data[0].split() if uid_data[0] else []
+        # SELECT returns total message count — no SEARCH ALL needed
+        _, count_data = conn.select(settings.MAIL_FOLDER, readonly=True)
+        total_msgs = int(count_data[0]) if count_data and count_data[0] else 0
 
-        # Reverse to get newest first, then apply offset and limit
-        uids = list(reversed(uids))
-        if offset > 0:
-            uids = uids[offset:]
-        uids = uids[:limit]
+        if total_msgs == 0:
+            return []
 
-        for uid_bytes in uids:
+        # Newest messages have the highest sequence numbers
+        end_seq = total_msgs - offset
+        start_seq = max(1, end_seq - limit + 1)
+
+        if end_seq < 1:
+            return []
+
+        # Single batch FETCH — one round trip for all messages
+        seq_range = f"{start_seq}:{end_seq}"
+        _, msg_data_list = conn.fetch(seq_range, "(UID FLAGS RFC822)")
+
+        if not msg_data_list:
+            return []
+
+        # imap response interleaves tuple(meta, raw) and b')' separators
+        parsed_msgs = []
+        for item in msg_data_list:
+            if not isinstance(item, tuple) or len(item) < 2:
+                continue
+            meta_bytes = item[0]
+            raw = item[1]
+            if not raw:
+                continue
+
+            meta_str = meta_bytes.decode(errors="replace") if isinstance(meta_bytes, bytes) else str(meta_bytes)
+
+            uid_m = _re.search(r'UID (\d+)', meta_str)
+            uid = uid_m.group(1) if uid_m else ""
+            flags_m = _re.search(r'FLAGS \(([^)]*)\)', meta_str)
+            flags_str = flags_m.group(1) if flags_m else ""
+            is_seen = "\\Seen" in flags_str
+
             try:
-                uid = uid_bytes.decode()
-                _, msg_data = conn.uid("FETCH", uid, "(RFC822 FLAGS)")
-
-                if not msg_data or not msg_data[0]:
-                    continue
-
-                raw = msg_data[0][1]
-                flags_str = str(msg_data[0][0]) if msg_data[0][0] else ""
                 msg = email.message_from_bytes(raw)
+            except Exception:
+                continue
 
-                subject = _decode_str(msg.get("Subject", "Без темы"))
-                from_header = _decode_str(msg.get("From", ""))
-                date_str = msg.get("Date", "")
-                msg_id_header = msg.get("Message-ID", "")
+            subject = _decode_str(msg.get("Subject", "Без темы"))
+            from_header = _decode_str(msg.get("From", ""))
+            date_str = msg.get("Date", "")
 
-                date_parsed: Optional[datetime] = None
-                try:
-                    date_parsed = parsedate_to_datetime(date_str)
-                except Exception:
-                    pass
+            date_parsed: Optional[datetime] = None
+            try:
+                date_parsed = parsedate_to_datetime(date_str)
+            except Exception:
+                pass
 
-                from_name, from_email = parseaddr(from_header)
-                if not from_name:
-                    from_name = from_email
+            from_name, from_email_addr = parseaddr(from_header)
+            if not from_name:
+                from_name = from_email_addr
 
-                body_text, body_html = _get_body(msg)
-                attachments = _get_attachments(msg)
-                is_seen = "\\Seen" in flags_str
+            body_text, body_html = _get_body(msg)
+            attachments = _get_attachments(msg)
+            display_body = body_text or (_strip_html(body_html) if body_html else "")
 
-                # Use text body; fall back to stripped HTML
-                display_body = body_text or (_strip_html(body_html) if body_html else "")
+            parsed_msgs.append({
+                "uid": uid,
+                "subject": subject,
+                "from_header": from_header,
+                "from_name": from_name or from_email_addr,
+                "from_email": from_email_addr,
+                "date": date_parsed,
+                "date_str": date_str,
+                "body": display_body[:8000] if display_body else "",
+                "attachments": attachments,
+                "has_xls": any(a["is_xls"] for a in attachments),
+                "is_seen": is_seen,
+            })
 
-                emails.append({
-                    "uid": uid,
-                    "subject": subject,
-                    "from_header": from_header,
-                    "from_name": from_name or from_email,
-                    "from_email": from_email,
-                    "date": date_parsed,
-                    "date_str": date_str,
-                    "body": display_body[:8000] if display_body else "",
-                    "attachments": attachments,
-                    "has_xls": any(a["is_xls"] for a in attachments),
-                    "is_seen": is_seen,
-                })
-            except Exception as e:
-                logger.error(f"Error reading email uid={uid_bytes}: {e}", exc_info=True)
+        # Sequence fetch returns oldest-first; reverse for newest-first display
+        emails = list(reversed(parsed_msgs))
 
         conn.logout()
     except Exception as e:

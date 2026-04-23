@@ -321,17 +321,19 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     if imap_configured:
         try:
-            emails = fetch_recent_emails(limit=20)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            emails = await loop.run_in_executor(None, lambda: fetch_recent_emails(limit=20))
         except Exception as e:
             logger.error(f"Failed to fetch emails for viewer: {e}", exc_info=True)
             fetch_error = str(e)
 
         auto_create_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
 
-        # Get email UIDs that have linked refunds
+        # Get email UIDs that have linked refunds (both auto and manual)
         result = await db.execute(
             select(Refund.email_uid).where(
-                Refund.source == RefundSource.email,
+                Refund.source.in_([RefundSource.email, RefundSource.email_manual]),
                 Refund.email_uid.isnot(None),
             )
         )
