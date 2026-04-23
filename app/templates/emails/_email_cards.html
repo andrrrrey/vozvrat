@@ -186,12 +186,24 @@
             <!-- Create refund button -->
             <div class="flex justify-end pt-2 border-t border-gray-100">
                 {% if em.uid in refund_uids %}
-                <span class="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 text-emerald-700 text-sm font-semibold rounded-xl">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    Заявка уже создана
-                </span>
+                <div class="flex items-center gap-2">
+                    <span class="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 text-emerald-700 text-sm font-semibold rounded-xl">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Заявка уже создана
+                    </span>
+                    <form method="post" action="/api/refunds/from-email/{{ em.uid }}"
+                          onsubmit="return confirmCreateRefund(this)">
+                        <button type="submit"
+                                class="flex items-center gap-2 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-xl transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            Создать снова новую заявку
+                        </button>
+                    </form>
+                </div>
                 {% else %}
                 <form method="post" action="/api/refunds/from-email/{{ em.uid }}"
                       onsubmit="return confirmCreateRefund(this)">
