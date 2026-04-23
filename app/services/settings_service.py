@@ -25,6 +25,8 @@ SETTING_KEYS = {
     # Auto-create refunds from emails
     "mail_auto_create_enabled": "false",
     "mail_auto_create_since": "",
+    # Auto-invite client on assign
+    "auto_create_client_on_assign": "false",
 }
 
 

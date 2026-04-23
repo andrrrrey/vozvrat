@@ -298,6 +298,43 @@
     </div>
 </div>
 
+<!-- Invite client modal -->
+<div id="invite-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
+    onclick="if(event.target===this)closeInviteModal()">
+    <div class="bg-white rounded-[32px] shadow-xl w-full max-w-sm p-8">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-lg font-bold text-gray-900">Создать аккаунт клиента</h2>
+            <button onclick="closeInviteModal()" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form onsubmit="submitInviteClient(event)" class="space-y-4">
+            <input type="hidden" id="invite-refund-id">
+            <div>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Email клиента *</label>
+                <input type="email" id="invite-email" required
+                    class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Имя клиента *</label>
+                <input type="text" id="invite-name" required placeholder="ООО Компания / Иван Иванов"
+                    class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+            </div>
+            <p class="text-xs text-gray-400">Пароль будет сгенерирован автоматически и отправлен на указанный email.</p>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" id="invite-submit-btn"
+                    class="flex-1 py-3 bg-gray-900 text-white rounded-2xl font-bold hover:bg-black transition-all text-sm">
+                    Создать и отправить пароль
+                </button>
+                <button type="button" onclick="closeInviteModal()"
+                    class="flex-none px-5 py-3 bg-gray-100 text-gray-600 rounded-2xl font-semibold hover:bg-gray-200 transition-all text-sm">
+                    Отмена
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Supplier creation modal -->
 <div id="supplier-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     onclick="if(event.target===this)closeSupplierModal()">
@@ -308,9 +345,13 @@
 
 <script>
 async function assignClient(refundId) {
-    const select = document.getElementById('assign-client-select');
+    const sel = document.getElementById('assign-client-select');
+    if (!sel.value && {{ 'true' if auto_invite_enabled else 'false' }}) {
+        openInviteClientModal(refundId, '{{ client_email_for_invite | e }}');
+        return;
+    }
     const data = new FormData();
-    data.set('client_user_id', select.value);
+    data.set('client_user_id', sel.value);
     try {
         const res = await fetch('/api/refunds/' + refundId + '/assign-client', { method: 'POST', body: data });
         const json = await res.json();
@@ -322,6 +363,52 @@ async function assignClient(refundId) {
         }
     } catch {
         showToast('Ошибка сети', 'error');
+    }
+}
+
+function openInviteClientModal(refundId, prefillEmail) {
+    document.getElementById('invite-refund-id').value = refundId;
+    document.getElementById('invite-email').value = prefillEmail || '';
+    document.getElementById('invite-name').value = '';
+    document.getElementById('invite-modal').classList.remove('hidden');
+    document.getElementById('invite-modal').classList.add('flex');
+    document.getElementById('invite-name').focus();
+}
+
+function closeInviteModal() {
+    document.getElementById('invite-modal').classList.add('hidden');
+    document.getElementById('invite-modal').classList.remove('flex');
+}
+
+async function submitInviteClient(e) {
+    e.preventDefault();
+    const email = document.getElementById('invite-email').value.trim();
+    const name = document.getElementById('invite-name').value.trim();
+    const refundId = document.getElementById('invite-refund-id').value;
+    if (!email || !name) { showToast('Заполните имя и email', 'error'); return; }
+    const btn = document.getElementById('invite-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Отправляем...';
+    try {
+        const fd = new FormData();
+        fd.set('email', email);
+        fd.set('full_name', name);
+        fd.set('refund_id', refundId);
+        const res = await fetch('/api/users/invite-client', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (json.ok) {
+            closeInviteModal();
+            showToast(json.message || 'Аккаунт создан, пароль отправлен');
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            showToast(json.detail || 'Ошибка', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Создать и отправить пароль';
+        }
+    } catch {
+        showToast('Ошибка сети', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Создать и отправить пароль';
     }
 }
 

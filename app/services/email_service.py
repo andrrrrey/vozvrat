@@ -135,3 +135,40 @@ async def send_supplier_email(
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
     logger.info(f"Supplier email sent for refund {refund_display_id} to {actual_to} (test_mode={test_mode})")
+
+
+async def send_client_credentials_email(
+    db: AsyncSession,
+    to_email: str,
+    full_name: str,
+    password: str,
+) -> None:
+    """Send login credentials to a newly created or updated client account."""
+    smtp = await _get_smtp_settings(db)
+    if not smtp["host"]:
+        raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
+
+    body = "\n".join([
+        f"Здравствуйте, {full_name}!",
+        "",
+        "Для вас создан аккаунт в системе управления возвратами.",
+        "",
+        f"Email:    {to_email}",
+        f"Пароль:   {password}",
+        "",
+        "Войдите на сайт и смените пароль при первом входе.",
+        "",
+        "С уважением,",
+        "Служба поддержки",
+    ])
+
+    msg = EmailMessage()
+    msg["Subject"] = "Данные для входа в систему"
+    msg["From"] = smtp["from_addr"] or smtp["user"]
+    msg["To"] = to_email
+    msg["Date"] = formatdate()
+    msg.set_content(body, charset="utf-8")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
+    logger.info(f"Credentials email sent to {to_email}")

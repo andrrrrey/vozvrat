@@ -95,6 +95,20 @@
             </div>
         </div>
 
+        <!-- Клиенты -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Управление клиентами</p>
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" name="auto_create_client_on_assign" value="true" id="auto-invite-toggle"
+                    {% if app_settings.auto_create_client_on_assign == 'true' %}checked{% endif %}
+                    class="w-4 h-4 rounded accent-black">
+                <div>
+                    <span class="text-sm font-medium text-gray-700">Предлагать создание аккаунта клиента при привязке</span>
+                    <p class="text-xs text-gray-400 mt-0.5">При нажатии «Сохранить» без выбора клиента — показывать попап для создания нового аккаунта и отправки пароля на email.</p>
+                </div>
+            </label>
+        </div>
+
         <!-- FTP -->
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">FTP (интеграция с 1С)</p>
@@ -186,7 +200,7 @@ async function saveSettings(e) {
     const form = document.getElementById('settings-form');
     const data = new FormData(form);
     // Ensure unchecked checkboxes are sent as false
-    ['smtp_use_tls', 'supplier_email_test_mode'].forEach(name => {
+    ['smtp_use_tls', 'supplier_email_test_mode', 'auto_create_client_on_assign'].forEach(name => {
         if (!data.has(name)) data.set(name, 'false');
     });
     const res = await fetch('/api/settings', { method: 'POST', body: data });

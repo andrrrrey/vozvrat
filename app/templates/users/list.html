@@ -16,6 +16,24 @@
         </button>
     </div>
 
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-3 mb-4">
+        <input id="search-input" type="text" placeholder="Поиск по имени или email…"
+            oninput="filterUsers()"
+            class="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10 w-64">
+        <select id="role-filter" onchange="filterUsers()"
+            class="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10 bg-white">
+            <option value="">Все роли</option>
+            <option value="admin">Администратор</option>
+            <option value="staff">Сотрудник</option>
+            <option value="client">Клиент</option>
+        </select>
+        <button onclick="clearFilters()"
+            class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+            Сбросить
+        </button>
+    </div>
+
     <!-- Table -->
     <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         <table class="w-full">
@@ -27,9 +45,12 @@
                     <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Действия</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="users-tbody">
                 {% for u in users %}
-                <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                <tr class="user-row border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                    data-name="{{ u.full_name | lower }}"
+                    data-email="{{ u.email | lower }}"
+                    data-role="{{ u.role.value }}">
                     <td class="px-6 py-4">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
@@ -61,11 +82,17 @@
                         {% endif %}
                     </td>
                     <td class="px-6 py-4">
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 flex-wrap">
                             <button onclick="openUserModal({{ u.id }})"
                                 class="text-blue-500 font-bold text-xs uppercase hover:text-blue-700">
                                 Изменить
                             </button>
+                            {% if u.role.value == 'client' %}
+                            <button onclick="sendPassword({{ u.id }}, '{{ u.email | e }}')"
+                                class="text-indigo-500 font-bold text-xs uppercase hover:text-indigo-700">
+                                Выслать пароль
+                            </button>
+                            {% endif %}
                             {% if u.id != user.id and u.is_active %}
                             <button onclick="deactivateUser({{ u.id }})"
                                 class="text-red-400 font-bold text-xs uppercase hover:text-red-600">
@@ -76,7 +103,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr>
+                <tr id="empty-row">
                     <td colspan="4" class="px-6 py-12 text-center text-gray-400 text-sm">
                         Пользователи не найдены
                     </td>
@@ -84,6 +111,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        <p id="no-results" class="hidden px-6 py-12 text-center text-gray-400 text-sm">Ничего не найдено</p>
     </div>
 </div>
 
@@ -95,11 +123,31 @@
 </div>
 
 <script>
+function filterUsers() {
+    const search = document.getElementById('search-input').value.toLowerCase().trim();
+    const role = document.getElementById('role-filter').value;
+    const rows = document.querySelectorAll('.user-row');
+    let visible = 0;
+    rows.forEach(row => {
+        const nameMatch = !search || row.dataset.name.includes(search) || row.dataset.email.includes(search);
+        const roleMatch = !role || row.dataset.role === role;
+        const show = nameMatch && roleMatch;
+        row.classList.toggle('hidden', !show);
+        if (show) visible++;
+    });
+    document.getElementById('no-results').classList.toggle('hidden', visible > 0);
+}
+
+function clearFilters() {
+    document.getElementById('search-input').value = '';
+    document.getElementById('role-filter').value = '';
+    filterUsers();
+}
+
 function openUserModal(userId) {
     const modal = document.getElementById('user-modal');
     const content = document.getElementById('user-modal-content');
     const url = userId ? `/api/users/form?user_id=${userId}` : '/api/users/form';
-
     fetch(url).then(r => r.text()).then(html => {
         content.innerHTML = html;
         modal.classList.remove('hidden');
@@ -121,6 +169,25 @@ async function deactivateUser(userId) {
     } else {
         const data = await resp.json();
         alert(data.detail || 'Ошибка');
+    }
+}
+
+async function sendPassword(userId, email) {
+    if (!confirm(`Выслать новый пароль на ${email}?`)) return;
+    try {
+        const res = await fetch(`/api/users/${userId}/send-password`, { method: 'POST' });
+        const json = await res.json();
+        if (json.ok) {
+            if (window.showToast) showToast(json.message || 'Пароль отправлен');
+            else alert(json.message || 'Пароль отправлен');
+        } else {
+            const msg = json.detail || 'Ошибка';
+            if (window.showToast) showToast(msg, 'error');
+            else alert(msg);
+        }
+    } catch {
+        if (window.showToast) showToast('Ошибка сети', 'error');
+        else alert('Ошибка сети');
     }
 }
 
