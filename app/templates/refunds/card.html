@@ -76,6 +76,19 @@
                         <span class="text-gray-400">Поставщик</span>
                         <span class="font-medium text-gray-700">{{ refund.supplier.name }}</span>
                     </div>
+                    {% elif refund.supplier_name %}
+                    <div class="flex justify-between items-center text-xs mb-3 pb-3 border-b border-gray-100">
+                        <span class="text-gray-400">Поставщик</span>
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium text-gray-700">{{ refund.supplier_name }}</span>
+                            {% if user.role.value in ('admin', 'staff') %}
+                            <button onclick="openCreateSupplierModal('{{ refund.supplier_name | e }}', {{ refund.id }})"
+                                class="px-2 py-0.5 text-[10px] font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap">
+                                Создать поставщика
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
                     {% endif %}
                     {% if refund.supplier_doc_number %}
                     <div class="flex justify-between text-xs mb-3 pb-3 border-b border-gray-100">
@@ -285,6 +298,14 @@
     </div>
 </div>
 
+<!-- Supplier creation modal -->
+<div id="supplier-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
+    onclick="if(event.target===this)closeSupplierModal()">
+    <div class="bg-white rounded-[32px] shadow-xl w-full max-w-md">
+        <div id="supplier-modal-content"></div>
+    </div>
+</div>
+
 <script>
 async function assignClient(refundId) {
     const select = document.getElementById('assign-client-select');
@@ -428,6 +449,46 @@ async function sendComment(e) {
         showToast('Ошибка сети', 'error');
     }
 }
+
+// Create supplier modal
+function openCreateSupplierModal(supplierName, refundId) {
+    const modal = document.getElementById('supplier-modal');
+    const content = document.getElementById('supplier-modal-content');
+    fetch('/api/suppliers/form').then(r => r.text()).then(html => {
+        content.innerHTML = html;
+        htmx.process(content);
+        const nameInput = content.querySelector('input[name="name"]');
+        if (nameInput) nameInput.value = supplierName;
+        modal._refundId = refundId;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    });
+}
+
+function closeSupplierModal() {
+    const modal = document.getElementById('supplier-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+document.addEventListener('htmx:afterRequest', function(e) {
+    const modal = document.getElementById('supplier-modal');
+    if (!modal || !e.detail.successful) return;
+    const verb = e.detail.requestConfig && e.detail.requestConfig.verb;
+    if (verb === 'post' && e.detail.pathInfo && e.detail.pathInfo.requestPath === '/api/suppliers') {
+        try {
+            const supplier = JSON.parse(e.detail.xhr.responseText);
+            if (supplier && supplier.id && modal._refundId) {
+                const fd = new FormData();
+                fd.set('supplier_id', supplier.id);
+                fetch('/api/refunds/' + modal._refundId + '/assign-supplier', { method: 'POST', body: fd })
+                    .then(() => { closeSupplierModal(); location.reload(); });
+            } else {
+                location.reload();
+            }
+        } catch { location.reload(); }
+    }
+});
 
 // Send email to supplier
 async function sendSupplierEmail(event, refundId, displayId) {

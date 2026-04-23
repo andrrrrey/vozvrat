@@ -19,6 +19,7 @@ from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.file_attachment import FileAttachment, FileType
 from app.models.user import User, UserRole
+from app.models.supplier import Supplier
 from app.services.file_service import detect_file_type
 
 logger = logging.getLogger(__name__)
@@ -47,10 +48,28 @@ async def generate_display_id(db: AsyncSession) -> str:
 
 
 def try_parse_xls(content: bytes) -> list[dict]:
-    """Try to parse XLS/XLSX file and extract refund items."""
+    """Parse XLS/XLSX and return a list of item dicts.
+
+    Each dict contains item-level fields (article, brand, quantity, price,
+    description, position_id, comment) and refund-level fields from the same
+    row (reason, order_id, client_ext_id, client_email, supplier_name).
+    Refund-level fields are identical across rows in a typical report.
+    """
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+        from openpyxl.descriptors import base as _desc_base
+
+        _orig_set = _desc_base.NoneSet.__set__
+
+        def _lenient_set(self, instance, value):
+            try:
+                _orig_set(self, instance, value)
+            except ValueError:
+                object.__setattr__(instance, self.name, None)
+
+        _desc_base.NoneSet.__set__ = _lenient_set
+
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
         ws = wb.active
 
         rows = list(ws.iter_rows(values_only=True))
@@ -60,8 +79,9 @@ def try_parse_xls(content: bytes) -> list[dict]:
         header_row = None
         header_idx = 0
         for i, row in enumerate(rows[:5]):
-            row_lower = [str(c).lower() if c else "" for c in row]
-            if any(k in " ".join(row_lower) for k in ["артикул", "article", "код"]):
+            row_lower = [str(c).lower().strip() if c is not None else "" for c in row]
+            joined = " ".join(row_lower)
+            if any(k in joined for k in ["артикул", "article", "код"]):
                 header_row = row_lower
                 header_idx = i
                 break
@@ -69,32 +89,103 @@ def try_parse_xls(content: bytes) -> list[dict]:
         if header_row is None:
             return []
 
-        col_map = {}
+        col_map: dict[str, int] = {}
         for j, h in enumerate(header_row):
-            if "артикул" in h or "article" in h or "арт" in h:
-                col_map["article"] = j
+            if "артикул" in h or "article" in h or ("арт" in h and "марк" not in h):
+                col_map.setdefault("article", j)
             elif "марк" in h or "бренд" in h or "brand" in h:
-                col_map["brand"] = j
-            elif "кол" in h or "qty" in h or "количество" in h:
-                col_map["quantity"] = j
-            elif "цена" in h or "price" in h or "стоим" in h:
-                col_map["price"] = j
+                col_map.setdefault("brand", j)
+            elif h.startswith("кол") or "qty" in h or "количество" in h:
+                col_map.setdefault("quantity", j)
+            elif h == "цена" or "price" in h or "стоим" in h:
+                col_map.setdefault("price", j)
+            elif h == "сумма" or "total" in h or "итог" in h:
+                col_map.setdefault("total", j)
             elif "описан" in h or "назван" in h or "наим" in h:
-                col_map["description"] = j
+                col_map.setdefault("description", j)
+            elif "причина" in h:
+                col_map.setdefault("reason", j)
+            elif "комментарий" in h or "коммент" in h:
+                col_map.setdefault("comment", j)
+            elif "id позиции" in h or h == "id позиции" or ("позиц" in h and "id" in h):
+                col_map.setdefault("position_id", j)
+            elif "id заказа" in h or h == "id заказа" or ("заказ" in h and "id" in h):
+                col_map.setdefault("order_id", j)
+            elif "id клиента" in h or h == "id клиента" or ("клиент" in h and "id" in h):
+                col_map.setdefault("client_ext_id", j)
+            elif "эл.адрес" in h or "эл. адрес" in h or "email" in h or "e-mail" in h:
+                col_map.setdefault("client_email", j)
+            elif "поставщик" in h or "supplier" in h:
+                col_map.setdefault("supplier_name", j)
 
         if "article" not in col_map:
             return []
 
+        def _cell(row, key):
+            idx = col_map.get(key)
+            if idx is None or idx >= len(row):
+                return None
+            return row[idx]
+
         items = []
         for row in rows[header_idx + 1:]:
-            if not row or not row[col_map["article"]]:
+            if not row:
                 continue
+            article_val = _cell(row, "article")
+            if article_val is None or str(article_val).strip() == "":
+                continue
+
+            qty_raw = _cell(row, "quantity")
+            try:
+                qty = int(qty_raw) if qty_raw is not None else 1
+            except (ValueError, TypeError):
+                qty = 1
+
+            price_raw = _cell(row, "price")
+            if price_raw is None:
+                price_raw = _cell(row, "total")
+            try:
+                price = float(price_raw) if price_raw is not None else 0.0
+            except (ValueError, TypeError):
+                price = 0.0
+
+            reason_raw = _cell(row, "reason")
+            reason = str(reason_raw).strip() if reason_raw is not None else None
+
+            comment_raw = _cell(row, "comment")
+            comment = str(comment_raw).strip() if comment_raw is not None else None
+
+            position_id_raw = _cell(row, "position_id")
+            position_id = str(int(position_id_raw)) if position_id_raw is not None else None
+
+            order_id_raw = _cell(row, "order_id")
+            order_id = str(int(order_id_raw)) if isinstance(order_id_raw, (int, float)) else (str(order_id_raw).strip() if order_id_raw else None)
+
+            client_ext_id_raw = _cell(row, "client_ext_id")
+            client_ext_id = str(int(client_ext_id_raw)) if isinstance(client_ext_id_raw, (int, float)) else (str(client_ext_id_raw).strip() if client_ext_id_raw else None)
+
+            client_email_raw = _cell(row, "client_email")
+            client_email = str(client_email_raw).strip().lower() if client_email_raw else None
+
+            supplier_name_raw = _cell(row, "supplier_name")
+            supplier_name = str(supplier_name_raw).strip() if supplier_name_raw else None
+
+            brand_raw = _cell(row, "brand")
+            description_raw = _cell(row, "description")
+
             item = {
-                "article": str(row[col_map["article"]]),
-                "brand": str(row[col_map["brand"]]) if "brand" in col_map and row[col_map["brand"]] else None,
-                "quantity": int(row[col_map["quantity"]]) if "quantity" in col_map and row[col_map["quantity"]] else 1,
-                "price": float(row[col_map["price"]]) if "price" in col_map and row[col_map["price"]] else 0.0,
-                "description": str(row[col_map["description"]]) if "description" in col_map and row[col_map["description"]] else None,
+                "article": str(article_val).strip(),
+                "brand": str(brand_raw).strip() if brand_raw is not None else None,
+                "quantity": qty,
+                "price": price,
+                "description": str(description_raw).strip() if description_raw is not None else None,
+                "position_id": position_id,
+                "comment": comment,
+                "reason": reason,
+                "order_id": order_id,
+                "client_ext_id": client_ext_id,
+                "client_email": client_email,
+                "supplier_name": supplier_name,
             }
             items.append(item)
         return items
@@ -416,34 +507,57 @@ def parse_body_data(text: str) -> dict:
 
 async def _find_or_create_client(
     db: AsyncSession,
-    client_ext_id: str,
+    client_ext_id: Optional[str],
     client_name: Optional[str],
+    client_email: Optional[str] = None,
 ) -> User:
-    """Look up a client User by external_id; create one if not found."""
-    result = await db.execute(select(User).where(User.external_id == client_ext_id))
-    user = result.scalar_one_or_none()
-    if user:
-        logger.debug(f"Found existing client by external_id={client_ext_id}: id={user.id}")
-        return user
-
+    """Look up a client User by external_id or email; create one if not found."""
     from passlib.context import CryptContext
     import secrets
     pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    name = (client_name or f"Клиент {client_ext_id}")[:255]
-    placeholder_email = f"ext_client_{client_ext_id}@imported.local"
+    # 1. Look up by external_id
+    if client_ext_id:
+        result = await db.execute(select(User).where(User.external_id == client_ext_id))
+        user = result.scalar_one_or_none()
+        if user:
+            logger.debug(f"Found existing client by external_id={client_ext_id}: id={user.id}")
+            if client_email and user.email.endswith("@imported.local"):
+                user.email = client_email
+            return user
+
+    # 2. Look up by email
+    if client_email:
+        result = await db.execute(select(User).where(User.email == client_email))
+        user = result.scalar_one_or_none()
+        if user:
+            logger.debug(f"Found existing client by email={client_email}: id={user.id}")
+            if client_ext_id and not user.external_id:
+                user.external_id = client_ext_id
+            return user
+
+    # 3. Create new user
+    label = client_ext_id or client_email or "unknown"
+    name = (client_name or f"Клиент {label}")[:255]
+    email_to_use = client_email or f"ext_client_{client_ext_id}@imported.local"
     user = User(
-        email=placeholder_email,
+        email=email_to_use,
         password_hash=pwd_ctx.hash(secrets.token_urlsafe(24)),
         full_name=name,
         role=UserRole.client,
         is_active=True,
-        external_id=client_ext_id,
+        external_id=client_ext_id or None,
     )
     db.add(user)
     await db.flush()
-    logger.info(f"Auto-created client user id={user.id} external_id={client_ext_id} name='{name}'")
+    logger.info(f"Auto-created client user id={user.id} ext_id={client_ext_id} email={email_to_use} name='{name}'")
     return user
+
+
+async def _find_supplier(db: AsyncSession, supplier_name: str) -> Optional[Supplier]:
+    """Look up a Supplier by exact name (case-sensitive). Returns None if not found."""
+    result = await db.execute(select(Supplier).where(Supplier.name == supplier_name))
+    return result.scalar_one_or_none()
 
 
 async def create_refund_from_uid(uid: str, db: AsyncSession):
@@ -473,24 +587,65 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         sender_name = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
 
         body_text = get_email_body_text(msg)
-        # Include subject in parsed text so the free-form extractor can use it
         parsed = parse_body_data(f"{subject}\n{body_text}")
+
+        # Pre-scan attachments to find XLS before creating the refund
+        attachments_raw: list[tuple[str, bytes, str]] = []  # (filename, content, content_type)
+        xls_items: list[dict] = []
+
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+            filename = part.get_filename()
+            if not filename:
+                continue
+            if part.get_content_type() in ("text/plain", "text/html"):
+                continue
+            filename_decoded = decode_str(filename)
+            content = part.get_payload(decode=True)
+            if not content:
+                continue
+            attachments_raw.append((filename_decoded, content, part.get_content_type()))
+            if not xls_items and filename_decoded.lower().endswith((".xls", ".xlsx")):
+                parsed_items = try_parse_xls(content)
+                if parsed_items:
+                    xls_items = parsed_items
+
+        # Merge: XLS data takes precedence over email body data
+        xls_first = xls_items[0] if xls_items else {}
+        reason = xls_first.get("reason") or parsed.get("reason")
+        comment = xls_first.get("comment") or parsed.get("comment")
+        order_id = xls_first.get("order_id") or parsed.get("order_id")
+        client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
+        client_email_from_xls = xls_first.get("client_email")
+        supplier_name_from_xls = xls_first.get("supplier_name")
 
         client_name = parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
 
-        # Resolve client user from external ID if present in email
+        # Resolve client user
         client_user_id = None
-        if parsed.get("client_ext_id"):
-            client_user = await _find_or_create_client(db, parsed["client_ext_id"], client_name)
+        if client_ext_id or client_email_from_xls:
+            client_user = await _find_or_create_client(
+                db, client_ext_id, client_name, client_email_from_xls
+            )
             client_user_id = client_user.id
             client_name = client_user.full_name
 
-        reason = parsed.get("reason")
-        if parsed.get("comment"):
-            reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
+        # Resolve supplier
+        supplier_id = None
+        unlinked_supplier_name = None
+        if supplier_name_from_xls:
+            supplier = await _find_supplier(db, supplier_name_from_xls)
+            if supplier:
+                supplier_id = supplier.id
+            else:
+                unlinked_supplier_name = supplier_name_from_xls
+
+        reason_text = reason
+        if comment:
+            reason_text = f"{reason}\nКомментарий: {comment}" if reason else comment
 
         logger.info(f"Creating refund from email UID={uid}: subject='{subject}' from='{from_header}'")
-
         display_id = await generate_display_id(db)
 
         refund = Refund(
@@ -499,8 +654,10 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             source=RefundSource.email_manual,
             client_name=client_name[:255],
             client_user_id=client_user_id,
-            order_id=parsed.get("order_id"),
-            reason=reason,
+            supplier_id=supplier_id,
+            supplier_name=unlinked_supplier_name,
+            order_id=str(order_id) if order_id else None,
+            reason=reason_text,
             email_subject=subject[:500],
             email_from=from_header[:255],
             email_uid=uid,
@@ -512,62 +669,40 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
         refund_dir.mkdir(parents=True, exist_ok=True)
 
-        xls_items_created = False
-
-        # Create item from body text if article was found
-        if parsed.get("article") and not xls_items_created:
+        # Create RefundItems: XLS rows preferred, fall back to email body article
+        if xls_items:
+            for item_data in xls_items:
+                item = RefundItem(
+                    refund_id=refund.id,
+                    article=item_data["article"][:255],
+                    brand=item_data["brand"][:255] if item_data.get("brand") else None,
+                    quantity=item_data.get("quantity", 1),
+                    price=item_data.get("price", 0),
+                    description=item_data.get("description"),
+                    position_id=item_data.get("position_id"),
+                    comment=item_data.get("comment"),
+                )
+                db.add(item)
+            logger.debug(f"Created {len(xls_items)} items from XLS for refund {refund.id}")
+        elif parsed.get("article"):
             item = RefundItem(
                 refund_id=refund.id,
                 article=parsed["article"][:255],
-                brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
+                brand=parsed["brand"][:255] if parsed.get("brand") else None,
                 quantity=parsed.get("quantity", 1),
                 price=parsed.get("price") or 0,
                 description=parsed.get("description"),
             )
             db.add(item)
-            xls_items_created = True
             logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
 
-        for part in msg.walk():
-            if part.get_content_maintype() == "multipart":
-                continue
-            # Accept attachments regardless of Content-Disposition value —
-            # some clients send images as inline or omit the header entirely.
-            filename = part.get_filename()
-            if not filename:
-                continue
-            # Skip plain-text / HTML body parts that somehow have a name param
-            if part.get_content_type() in ("text/plain", "text/html"):
-                continue
-
-            filename = decode_str(filename)
-            content = part.get_payload(decode=True)
-            if not content:
-                continue
-
+        # Save all attachments to disk
+        for filename, content, _ctype in attachments_raw:
             file_type = detect_file_type(filename)
             unique_name = f"{uuid.uuid4().hex}_{filename}"
             stored_path = str(refund_dir / unique_name)
-
             with open(stored_path, "wb") as f:
                 f.write(content)
-
-            if file_type == FileType.xls and not xls_items_created:
-                items = try_parse_xls(content)
-                if items:
-                    for item_data in items:
-                        item = RefundItem(
-                            refund_id=refund.id,
-                            article=item_data["article"][:255],
-                            brand=item_data.get("brand", "")[:255] if item_data.get("brand") else None,
-                            quantity=item_data.get("quantity", 1),
-                            price=item_data.get("price", 0),
-                            description=item_data.get("description"),
-                        )
-                        db.add(item)
-                    xls_items_created = True
-                    logger.debug(f"Parsed {len(items)} items from XLS for refund {refund.id}")
-
             attachment = FileAttachment(
                 refund_id=refund.id,
                 filename=filename,
@@ -582,7 +717,6 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         # Upsert MailNotification linking this email to the new refund
         from app.models.mail_notification import MailNotification
         from sqlalchemy.dialects.postgresql import insert as pg_insert
-        from sqlalchemy import update as sa_update
         _notif_insert = pg_insert(MailNotification).values(
             email_uid=uid,
             subject=subject[:500] if subject else None,
@@ -768,20 +902,62 @@ async def _process_raw_email(
     body_text = get_email_body_text(msg)
     parsed = parse_body_data(f"{subject}\n{body_text}")
 
+    # Pre-scan attachments to find XLS before creating the refund
+    attachments_raw: list[tuple[str, bytes, str]] = []
+    xls_items: list[dict] = []
+
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        filename = part.get_filename()
+        if not filename:
+            continue
+        if part.get_content_type() in ("text/plain", "text/html"):
+            continue
+        filename_decoded = decode_str(filename)
+        content = part.get_payload(decode=True)
+        if not content:
+            continue
+        attachments_raw.append((filename_decoded, content, part.get_content_type()))
+        if not xls_items and filename_decoded.lower().endswith((".xls", ".xlsx")):
+            parsed_items = try_parse_xls(content)
+            if parsed_items:
+                xls_items = parsed_items
+
+    # Merge: XLS data takes precedence over email body data
+    xls_first = xls_items[0] if xls_items else {}
+    reason = xls_first.get("reason") or parsed.get("reason")
+    comment = xls_first.get("comment") or parsed.get("comment")
+    order_id = xls_first.get("order_id") or parsed.get("order_id")
+    client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
+    client_email_from_xls = xls_first.get("client_email")
+    supplier_name_from_xls = xls_first.get("supplier_name")
+
     client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
 
     client_user_id = None
-    if parsed.get("client_ext_id"):
-        client_user = await _find_or_create_client(db, parsed["client_ext_id"], client_name)
+    if client_ext_id or client_email_from_xls:
+        client_user = await _find_or_create_client(
+            db, client_ext_id, client_name, client_email_from_xls
+        )
         client_user_id = client_user.id
         client_name = client_user.full_name
 
-    reason = parsed.get("reason")
-    if parsed.get("comment"):
-        reason = f"{reason}\nКомментарий: {parsed['comment']}" if reason else parsed["comment"]
+    # Resolve supplier
+    supplier_id = None
+    unlinked_supplier_name = None
+    if supplier_name_from_xls:
+        supplier = await _find_supplier(db, supplier_name_from_xls)
+        if supplier:
+            supplier_id = supplier.id
+        else:
+            unlinked_supplier_name = supplier_name_from_xls
+
+    reason_text = reason
+    if comment:
+        reason_text = f"{reason}\nКомментарий: {comment}" if reason else comment
 
     logger.info(f"Processing email: subject='{subject}' from='{from_header}'")
-
     display_id = await generate_display_id(db)
 
     refund = Refund(
@@ -790,8 +966,10 @@ async def _process_raw_email(
         source=RefundSource.email,
         client_name=client_name[:255],
         client_user_id=client_user_id,
-        order_id=parsed.get("order_id"),
-        reason=reason,
+        supplier_id=supplier_id,
+        supplier_name=unlinked_supplier_name,
+        order_id=str(order_id) if order_id else None,
+        reason=reason_text,
         email_subject=subject[:500],
         email_from=from_header[:255],
         email_uid=uid,
@@ -803,56 +981,39 @@ async def _process_raw_email(
     refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
     refund_dir.mkdir(parents=True, exist_ok=True)
 
-    xls_items_created = False
-
-    if parsed.get("article"):
+    # Create RefundItems: XLS rows preferred, fall back to email body article
+    if xls_items:
+        for item_data in xls_items:
+            item = RefundItem(
+                refund_id=refund.id,
+                article=item_data["article"][:255],
+                brand=item_data["brand"][:255] if item_data.get("brand") else None,
+                quantity=item_data.get("quantity", 1),
+                price=item_data.get("price", 0),
+                description=item_data.get("description"),
+                position_id=item_data.get("position_id"),
+                comment=item_data.get("comment"),
+            )
+            db.add(item)
+        logger.debug(f"Created {len(xls_items)} items from XLS for refund {refund.id}")
+    elif parsed.get("article"):
         item = RefundItem(
             refund_id=refund.id,
             article=parsed["article"][:255],
-            brand=parsed.get("brand", "")[:255] if parsed.get("brand") else None,
+            brand=parsed["brand"][:255] if parsed.get("brand") else None,
             quantity=parsed.get("quantity", 1),
             price=parsed.get("price") or 0,
             description=parsed.get("description"),
         )
         db.add(item)
-        xls_items_created = True
 
-    for part in msg.walk():
-        if part.get_content_maintype() == "multipart":
-            continue
-        filename = part.get_filename()
-        if not filename:
-            continue
-        if part.get_content_type() in ("text/plain", "text/html"):
-            continue
-
-        filename = decode_str(filename)
-        content = part.get_payload(decode=True)
-        if not content:
-            continue
-
+    # Save all attachments to disk
+    for filename, content, _ctype in attachments_raw:
         file_type = detect_file_type(filename)
         unique_name = f"{uuid.uuid4().hex}_{filename}"
         stored_path = str(refund_dir / unique_name)
-
         with open(stored_path, "wb") as f:
             f.write(content)
-
-        if file_type == FileType.xls and not xls_items_created:
-            items = try_parse_xls(content)
-            if items:
-                for item_data in items:
-                    item = RefundItem(
-                        refund_id=refund.id,
-                        article=item_data["article"][:255],
-                        brand=item_data.get("brand", "")[:255] if item_data.get("brand") else None,
-                        quantity=item_data.get("quantity", 1),
-                        price=item_data.get("price", 0),
-                        description=item_data.get("description"),
-                    )
-                    db.add(item)
-                xls_items_created = True
-
         attachment = FileAttachment(
             refund_id=refund.id,
             filename=filename,

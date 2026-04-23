@@ -501,6 +501,39 @@ async def assign_client_user(
     return JSONResponse({"ok": True})
 
 
+@router.post("/{refund_id}/assign-supplier")
+async def assign_supplier(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    form = await request.form()
+    supplier_id_raw = form.get("supplier_id", "")
+    supplier_id = int(supplier_id_raw) if str(supplier_id_raw).strip().isdigit() else None
+
+    result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = result.scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    if supplier_id:
+        supplier_result = await db.execute(select(Supplier).where(Supplier.id == supplier_id))
+        supplier = supplier_result.scalar_one_or_none()
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+        refund.supplier_id = supplier_id
+        refund.supplier_name = None
+    else:
+        refund.supplier_id = None
+
+    await db.flush()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/{refund_id}/send-supplier-email")
 async def send_supplier_email_endpoint(
     refund_id: int,

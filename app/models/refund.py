@@ -67,6 +67,7 @@ class Refund(Base):
     email_uid: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     supplier_doc_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     supplier_email_sent_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     client_user: Mapped[Optional["User"]] = relationship(
