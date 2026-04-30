@@ -286,6 +286,81 @@ async def get_refund(
     return refund
 
 
+@router.post("/client")
+async def create_client_refund(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a refund from the client dashboard."""
+    user = await get_current_user(request, db)
+    if user.role.value != "client":
+        raise HTTPException(status_code=403, detail="Только для клиентов")
+
+    form = await request.form()
+    order_id = str(form.get("order_id", "")).strip() or None
+    reason = str(form.get("reason", "")).strip() or None
+    supplier_name_text = str(form.get("supplier_name_text", "")).strip() or None
+
+    articles = form.getlist("article[]")
+    brands = form.getlist("brand[]")
+    quantities = form.getlist("quantity[]")
+    prices = form.getlist("price[]")
+    descriptions = form.getlist("description[]")
+
+    display_id = await generate_display_id(db)
+
+    refund = Refund(
+        display_id=display_id,
+        status=RefundStatus.received,
+        source=RefundSource.manual,
+        client_name=user.full_name,
+        client_user_id=user.id,
+        supplier_name=supplier_name_text,
+        order_id=order_id,
+        reason=reason,
+        created_by_id=user.id,
+    )
+    db.add(refund)
+    await db.flush()
+    await db.refresh(refund)
+
+    from decimal import Decimal
+    for i, article in enumerate(articles):
+        article = article.strip()
+        if not article:
+            continue
+        brand = brands[i].strip() if i < len(brands) else None
+        qty_raw = quantities[i] if i < len(quantities) else "1"
+        price_raw = prices[i] if i < len(prices) else "0"
+        desc_raw = descriptions[i] if i < len(descriptions) else ""
+        try:
+            qty = int(qty_raw)
+        except (ValueError, TypeError):
+            qty = 1
+        try:
+            price = Decimal(str(price_raw).replace(",", "."))
+        except Exception:
+            price = Decimal("0")
+        item = RefundItem(
+            refund_id=refund.id,
+            article=article[:255],
+            brand=brand[:255] if brand else None,
+            quantity=qty,
+            price=price,
+            description=desc_raw.strip()[:500] if desc_raw.strip() else None,
+        )
+        db.add(item)
+
+    for key, value in form.multi_items():
+        if hasattr(value, "filename") and value.filename:
+            await save_file(value, refund.id, db, uploaded_by_id=user.id)
+
+    await db.flush()
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"/client/refunds/{refund.id}", status_code=302)
+
+
 @router.post("/from-email/{uid}")
 async def create_refund_from_email(
     uid: str,

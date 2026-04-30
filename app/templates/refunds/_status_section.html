@@ -8,27 +8,17 @@
     </div>
     {% if user.role.value in ('admin', 'staff') %}
     <div class="flex flex-wrap gap-2">
-        {% if refund.status.value != 'sent_to_supplier' %}
+        {% if refund.status.value != 'received' %}
         <button
             hx-post="/api/refunds/{{ refund.id }}/status"
-            hx-vals='{"status": "sent_to_supplier"}'
+            hx-vals='{"status": "received"}'
             hx-target="#status-section"
             hx-swap="outerHTML"
-            class="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-blue-700 transition-colors">
-            Отправить поставщику
+            class="px-4 py-2 bg-blue-100 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-200 transition-colors">
+            Получен
         </button>
         {% endif %}
-        {% if refund.status.value not in ('stock',) %}
-        <button
-            hx-post="/api/refunds/{{ refund.id }}/status"
-            hx-vals='{"status": "stock"}'
-            hx-target="#status-section"
-            hx-swap="outerHTML"
-            class="px-4 py-2 bg-orange-100 text-orange-700 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors">
-            В сток
-        </button>
-        {% endif %}
-        {% if refund.status.value not in ('approved', 'completed') %}
+        {% if refund.status.value != 'approved' %}
         <button
             hx-post="/api/refunds/{{ refund.id }}/status"
             hx-vals='{"status": "approved"}'
@@ -36,16 +26,6 @@
             hx-swap="outerHTML"
             class="px-4 py-2 bg-green-100 text-green-700 rounded-xl text-xs font-bold hover:bg-green-200 transition-colors">
             Согласован
-        </button>
-        {% endif %}
-        {% if refund.status.value not in ('in_progress',) %}
-        <button
-            hx-post="/api/refunds/{{ refund.id }}/status"
-            hx-vals='{"status": "in_progress"}'
-            hx-target="#status-section"
-            hx-swap="outerHTML"
-            class="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-xl text-xs font-bold hover:bg-yellow-200 transition-colors">
-            В работу
         </button>
         {% endif %}
         {% if refund.status.value != 'archive' %}

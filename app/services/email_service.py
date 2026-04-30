@@ -110,7 +110,7 @@ async def send_supplier_email(
     body_text = "\n".join(lines)
 
     msg = EmailMessage()
-    msg["Subject"] = f"Возврат товара № {refund_display_id}"
+    msg["Subject"] = f"Автопрагматик ООО (amx24) - Возврат товара № {refund_display_id}"
     msg["From"] = smtp["from_addr"] or smtp["user"]
     msg["To"] = actual_to
     msg["Date"] = formatdate()

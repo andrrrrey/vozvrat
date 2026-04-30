@@ -13,10 +13,19 @@
                 <p class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Всего возвратов</p>
             </div>
             <div class="bg-white/10 rounded-2xl px-4 py-3">
-                <p class="text-2xl font-bold">{{ refunds | selectattr('status.value', 'in', ['received', 'in_progress']) | list | length }}</p>
+                <p class="text-2xl font-bold">{{ refunds | selectattr('status.value', 'equalto', 'received') | list | length }}</p>
                 <p class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">В обработке</p>
             </div>
         </div>
+    </div>
+
+    <!-- Create button -->
+    <div class="flex justify-end mb-4">
+        <a href="/client/refunds/create"
+            class="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-2xl text-sm font-bold shadow-lg hover:bg-black transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Создать заявку
+        </a>
     </div>
 
     <!-- Refunds List -->
@@ -33,9 +42,7 @@
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         {% if refund.status.value == 'received' %}
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
-                        {% elif refund.status.value in ('in_progress', 'approved') %}
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        {% elif refund.status.value == 'completed' %}
+                        {% elif refund.status.value == 'approved' %}
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         {% else %}
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>

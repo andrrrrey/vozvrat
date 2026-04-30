@@ -58,8 +58,12 @@ async def statistics_page(request: Request, db: AsyncSession = Depends(get_db)):
     if user.role.value == "client":
         return RedirectResponse(url="/client/refunds", status_code=302)
 
-    in_progress = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.in_progress)
+    received_count = (await db.execute(
+        select(func.count(Refund.id)).where(Refund.status == RefundStatus.received)
+    )).scalar() or 0
+
+    approved_count = (await db.execute(
+        select(func.count(Refund.id)).where(Refund.status == RefundStatus.approved)
     )).scalar() or 0
 
     new_from_mail = (await db.execute(
@@ -72,30 +76,12 @@ async def statistics_page(request: Request, db: AsyncSession = Depends(get_db)):
         select(func.count(Refund.id)).where(Refund.status == RefundStatus.archive)
     )).scalar() or 0
 
-    # Ожидают УКД: sent_to_supplier или completed без pdf_ukd файла
-    from app.models.file_attachment import FileAttachment
-    from sqlalchemy import not_, exists
-    has_ukd = exists().where(
-        and_(
-            FileAttachment.refund_id == Refund.id,
-            FileAttachment.file_type == FileType.pdf_ukd,
-        )
-    )
-    awaiting_ukd = (await db.execute(
-        select(func.count(Refund.id)).where(
-            and_(
-                Refund.status.in_([RefundStatus.sent_to_supplier, RefundStatus.completed]),
-                not_(has_ukd),
-            )
-        )
-    )).scalar() or 0
-
     return templates.TemplateResponse("statistics.html", {
         "request": request,
         "user": user,
-        "in_progress": in_progress,
+        "received_count": received_count,
+        "approved_count": approved_count,
         "new_from_mail": new_from_mail,
-        "awaiting_ukd": awaiting_ukd,
         "archive_count": archive_count,
     })
 
@@ -407,6 +393,20 @@ async def client_refunds_page(request: Request, db: AsyncSession = Depends(get_d
         "user": user,
         "refunds": refunds,
         "unread_counts": unread_counts,
+    })
+
+
+@router.get("/client/refunds/create")
+async def client_create_refund_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value != "client":
+        return RedirectResponse(url="/refunds/create", status_code=302)
+
+    return templates.TemplateResponse("client/create.html", {
+        "request": request,
+        "user": user,
     })
 
 

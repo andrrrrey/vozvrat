@@ -115,6 +115,8 @@ def try_parse_xls(content: bytes) -> list[dict]:
                 col_map.setdefault("client_ext_id", j)
             elif "эл.адрес" in h or "эл. адрес" in h or "email" in h or "e-mail" in h:
                 col_map.setdefault("client_email", j)
+            elif ("клиент" in h and "id" not in h) or "покупатель" in h or "название клиента" in h or "наименование клиента" in h:
+                col_map.setdefault("client_name", j)
             elif "поставщик" in h or "supplier" in h:
                 col_map.setdefault("supplier_name", j)
 
@@ -170,6 +172,9 @@ def try_parse_xls(content: bytes) -> list[dict]:
             supplier_name_raw = _cell(row, "supplier_name")
             supplier_name = str(supplier_name_raw).strip() if supplier_name_raw else None
 
+            client_name_raw = _cell(row, "client_name")
+            client_name = str(client_name_raw).strip() if client_name_raw else None
+
             brand_raw = _cell(row, "brand")
             description_raw = _cell(row, "description")
 
@@ -185,6 +190,7 @@ def try_parse_xls(content: bytes) -> list[dict]:
                 "order_id": order_id,
                 "client_ext_id": client_ext_id,
                 "client_email": client_email,
+                "client_name": client_name,
                 "supplier_name": supplier_name,
             }
             items.append(item)
@@ -619,8 +625,9 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
         client_email_from_xls = xls_first.get("client_email")
         supplier_name_from_xls = xls_first.get("supplier_name")
+        client_name_from_xls = xls_first.get("client_name")
 
-        client_name = parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
+        client_name = client_name_from_xls or parsed.get("client_name") or sender_name or from_header or "Неизвестный отправитель"
 
         # Resolve client user
         client_user_id = None
@@ -932,8 +939,9 @@ async def _process_raw_email(
     client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
     client_email_from_xls = xls_first.get("client_email")
     supplier_name_from_xls = xls_first.get("supplier_name")
+    client_name_from_xls = xls_first.get("client_name")
 
-    client_name = parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
+    client_name = client_name_from_xls or parsed.get("client_name") or client_name or from_header or "Неизвестный отправитель"
 
     client_user_id = None
     if client_ext_id or client_email_from_xls:
