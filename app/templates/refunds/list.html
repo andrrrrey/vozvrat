@@ -38,11 +38,7 @@
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
                     <option value="">Все статусы</option>
                     <option value="received" {% if current_status == 'received' %}selected{% endif %}>Получен</option>
-                    <option value="in_progress" {% if current_status == 'in_progress' %}selected{% endif %}>В работе</option>
                     <option value="approved" {% if current_status == 'approved' %}selected{% endif %}>Согласован</option>
-                    <option value="sent_to_supplier" {% if current_status == 'sent_to_supplier' %}selected{% endif %}>Отдан поставщику</option>
-                    <option value="stock" {% if current_status == 'stock' %}selected{% endif %}>Сток</option>
-                    <option value="completed" {% if current_status == 'completed' %}selected{% endif %}>Проведен</option>
                     <option value="archive" {% if current_status == 'archive' %}selected{% endif %}>Архив</option>
                 </select>
             </div>

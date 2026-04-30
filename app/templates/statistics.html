@@ -12,19 +12,19 @@
     <!-- Stats Cards -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">В работе</p>
-            <p class="text-3xl font-bold text-gray-900">{{ in_progress }}</p>
-            <p class="text-xs text-yellow-600 mt-1 font-medium">Активные возвраты</p>
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Получен</p>
+            <p class="text-3xl font-bold text-gray-900">{{ received_count }}</p>
+            <p class="text-xs text-blue-600 mt-1 font-medium">Новые возвраты</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Согласован</p>
+            <p class="text-3xl font-bold text-gray-900">{{ approved_count }}</p>
+            <p class="text-xs text-green-600 mt-1 font-medium">Согласованные</p>
         </div>
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Новые (Mail)</p>
             <p class="text-3xl font-bold text-gray-900">{{ new_from_mail }}</p>
             <p class="text-xs text-blue-600 mt-1 font-medium">Из почты</p>
-        </div>
-        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Ожидают УКД</p>
-            <p class="text-3xl font-bold text-gray-900">{{ awaiting_ukd }}</p>
-            <p class="text-xs text-orange-600 mt-1 font-medium">Без документа</p>
         </div>
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Архив</p>
