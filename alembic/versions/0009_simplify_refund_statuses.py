@@ -16,29 +16,41 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Map removed statuses to remaining ones
-    op.execute("UPDATE refunds SET status = 'received' WHERE status = 'in_progress'")
-    op.execute("UPDATE refunds SET status = 'approved' WHERE status IN ('sent_to_supplier', 'stock', 'completed')")
+    bind = op.get_bind()
 
-    # Recreate enum type with only 3 values
-    op.execute("ALTER TYPE refundstatus RENAME TO refundstatus_old")
-    op.execute("CREATE TYPE refundstatus AS ENUM ('received', 'approved', 'archive')")
-    op.execute(
+    # Step 1: migrate data (DML — runs inside the transaction)
+    bind.execute(sa.text(
+        "UPDATE refunds SET status = 'received' WHERE status = 'in_progress'"
+    ))
+    bind.execute(sa.text(
+        "UPDATE refunds SET status = 'approved' "
+        "WHERE status IN ('sent_to_supplier', 'stock', 'completed')"
+    ))
+
+    # Step 2: recreate the PostgreSQL enum type.
+    # DDL on enum types must run outside an explicit transaction block.
+    bind.execute(sa.text("COMMIT"))
+    bind.execute(sa.text("ALTER TYPE refundstatus RENAME TO refundstatus_old"))
+    bind.execute(sa.text(
+        "CREATE TYPE refundstatus AS ENUM ('received', 'approved', 'archive')"
+    ))
+    bind.execute(sa.text(
         "ALTER TABLE refunds ALTER COLUMN status TYPE refundstatus "
         "USING status::text::refundstatus"
-    )
-    op.execute("DROP TYPE refundstatus_old")
+    ))
+    bind.execute(sa.text("DROP TYPE refundstatus_old"))
 
 
 def downgrade() -> None:
-    # Restore original enum
-    op.execute("ALTER TYPE refundstatus RENAME TO refundstatus_new")
-    op.execute(
+    bind = op.get_bind()
+    bind.execute(sa.text("COMMIT"))
+    bind.execute(sa.text("ALTER TYPE refundstatus RENAME TO refundstatus_new"))
+    bind.execute(sa.text(
         "CREATE TYPE refundstatus AS ENUM "
         "('received', 'in_progress', 'approved', 'sent_to_supplier', 'stock', 'completed', 'archive')"
-    )
-    op.execute(
+    ))
+    bind.execute(sa.text(
         "ALTER TABLE refunds ALTER COLUMN status TYPE refundstatus "
         "USING status::text::refundstatus"
-    )
-    op.execute("DROP TYPE refundstatus_new")
+    ))
+    bind.execute(sa.text("DROP TYPE refundstatus_new"))
