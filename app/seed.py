@@ -118,7 +118,7 @@ async def seed(db: AsyncSession) -> None:
         },
         {
             "display_id": "#10002",
-            "status": RefundStatus.in_progress,
+            "status": RefundStatus.received,
             "source": RefundSource.manual,
             "client_name": "ООО СтройМаркет",
             "client_user_id": None,
@@ -147,7 +147,7 @@ async def seed(db: AsyncSession) -> None:
         },
         {
             "display_id": "#10004",
-            "status": RefundStatus.sent_to_supplier,
+            "status": RefundStatus.approved,
             "source": RefundSource.manual,
             "client_name": "ООО Авто-Детали",
             "client_user_id": None,

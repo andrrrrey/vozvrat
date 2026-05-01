@@ -15,22 +15,17 @@
     </div>
 
     <div class="max-w-3xl mx-auto">
-        <form action="/api/client/refunds" method="post" enctype="multipart/form-data" id="create-form">
+        <form action="/api/refunds/client" method="post" enctype="multipart/form-data" id="create-form">
             <!-- Order info -->
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Информация о заказе</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="space-y-5">
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">ID Заказа</label>
                         <input type="text" name="order_id" placeholder="#ORD-55441"
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Поставщик (если известен)</label>
-                        <input type="text" name="supplier_name_text" placeholder="Название поставщика"
-                            class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                    </div>
-                    <div class="md:col-span-2">
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Причина возврата *</label>
                         <textarea name="reason" rows="3" required placeholder="Опишите причину возврата..."
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm resize-none"></textarea>
@@ -55,8 +50,8 @@
                         <div class="flex items-center justify-between mb-3">
                             <p class="text-xs font-bold text-gray-500">Позиция 1</p>
                         </div>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <div class="md:col-span-2">
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <div class="col-span-2 md:col-span-1">
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул *</label>
                                 <input type="text" name="article[]" required placeholder="BOSCH-199-22"
                                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
@@ -71,14 +66,9 @@
                                 <input type="number" name="quantity[]" value="1" min="1" required
                                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                             </div>
-                            <div class="md:col-span-2">
+                            <div class="col-span-2 md:col-span-3">
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
                                 <input type="text" name="price[]" placeholder="0.00"
-                                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Описание</label>
-                                <input type="text" name="description[]" placeholder="Название товара"
                                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                             </div>
                         </div>
@@ -129,8 +119,8 @@ function addItem() {
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="md:col-span-2">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div class="col-span-2 md:col-span-1">
                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул *</label>
                 <input type="text" name="article[]" required placeholder="BOSCH-199-22"
                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
@@ -145,14 +135,9 @@ function addItem() {
                 <input type="number" name="quantity[]" value="1" min="1" required
                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
             </div>
-            <div class="md:col-span-2">
+            <div class="col-span-2 md:col-span-3">
                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
                 <input type="text" name="price[]" placeholder="0.00"
-                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-            </div>
-            <div class="md:col-span-2">
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Описание</label>
-                <input type="text" name="description[]" placeholder="Название товара"
                     class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
             </div>
         </div>
