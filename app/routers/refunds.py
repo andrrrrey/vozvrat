@@ -703,33 +703,6 @@ async def update_status(
     await db.flush()
     await db.refresh(refund)
 
-    # Auto-send email to supplier when status changes to sent_to_supplier
-    if new_status == RefundStatus.sent_to_supplier and refund.supplier and refund.supplier.email:
-        from app.config import settings as cfg
-        from app.services.email_service import send_supplier_email
-        photo_paths = [
-            os.path.join(cfg.UPLOAD_DIR, f.stored_path) if not os.path.isabs(f.stored_path)
-            else f.stored_path
-            for f in refund.files
-            if f.file_type.value == "photo"
-        ]
-        try:
-            await send_supplier_email(
-                db=db,
-                to_email=refund.supplier.email,
-                refund_display_id=refund.display_id,
-                supplier_name=refund.supplier.name,
-                items=refund.items,
-                reason=refund.reason,
-                supplier_doc_number=refund.supplier_doc_number,
-                photo_paths=photo_paths,
-            )
-            from datetime import datetime as dt
-            refund.supplier_email_sent_at = dt.utcnow()
-            await db.flush()
-        except Exception as e:
-            logger.error(f"Auto email failed for refund {refund_id}: {e}", exc_info=True)
-
     from fastapi.templating import Jinja2Templates
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
     templates = Jinja2Templates(directory=templates_dir)

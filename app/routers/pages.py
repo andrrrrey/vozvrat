@@ -264,7 +264,7 @@ async def suppliers_page(request: Request, db: AsyncSession = Depends(get_db)):
             select(func.count(Refund.id)).where(
                 and_(
                     Refund.supplier_id == supplier.id,
-                    Refund.status.notin_([RefundStatus.archive, RefundStatus.completed])
+                    Refund.status != RefundStatus.archive
                 )
             )
         )
