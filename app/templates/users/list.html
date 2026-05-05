@@ -150,6 +150,7 @@ function openUserModal(userId) {
     const url = userId ? `/api/users/form?user_id=${userId}` : '/api/users/form';
     fetch(url).then(r => r.text()).then(html => {
         content.innerHTML = html;
+        htmx.process(content);
         modal.classList.remove('hidden');
         modal.classList.add('flex');
     });
