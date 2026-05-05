@@ -99,6 +99,12 @@
                                 Деактивировать
                             </button>
                             {% endif %}
+                            {% if u.id != user.id and u.role.value == 'staff' %}
+                            <button onclick="removeUser({{ u.id }}, '{{ u.full_name | e }}')"
+                                class="text-gray-400 font-bold text-xs uppercase hover:text-red-700">
+                                Удалить
+                            </button>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
@@ -170,6 +176,18 @@ async function deactivateUser(userId) {
     } else {
         const data = await resp.json();
         alert(data.detail || 'Ошибка');
+    }
+}
+
+async function removeUser(userId, name) {
+    if (!confirm(`Удалить сотрудника «${name}» безвозвратно?\n\nЕсли у пользователя есть история сообщений, удаление будет отклонено — используйте деактивацию.`)) return;
+    const resp = await fetch(`/api/users/${userId}/remove`, { method: 'DELETE' });
+    if (resp.ok) {
+        window.location.reload();
+    } else {
+        const data = await resp.json();
+        if (window.showToast) showToast(data.detail || 'Ошибка удаления', 'error');
+        else alert(data.detail || 'Ошибка удаления');
     }
 }
 

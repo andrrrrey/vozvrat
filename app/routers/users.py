@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update, delete
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
@@ -135,6 +135,51 @@ async def deactivate_user(
 
     user.is_active = False
     await db.flush()
+    return {"success": True}
+
+
+@router.delete("/{user_id}/remove")
+async def remove_user(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Hard-delete a user. Fails if the user has authored messages (history would be lost)."""
+    admin = await require_admin(request, db)
+    if admin.id == user_id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить свой аккаунт")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    from app.models.message import Message
+    from app.models.refund import Refund
+    from app.models.file_attachment import FileAttachment
+
+    msg_count_result = await db.execute(
+        select(Message).where(Message.user_id == user_id).limit(1)
+    )
+    if msg_count_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail="Нельзя удалить пользователя с историей сообщений. Используйте деактивацию.",
+        )
+
+    await db.execute(
+        update(Refund).where(Refund.client_user_id == user_id).values(client_user_id=None)
+    )
+    await db.execute(
+        update(Refund).where(Refund.created_by_id == user_id).values(created_by_id=None)
+    )
+    await db.execute(
+        update(FileAttachment).where(FileAttachment.uploaded_by_id == user_id).values(uploaded_by_id=None)
+    )
+
+    await db.delete(user)
+    await db.flush()
+    logger.info(f"Hard-deleted user id={user_id} email={user.email} by admin id={admin.id}")
     return {"success": True}
 
 
