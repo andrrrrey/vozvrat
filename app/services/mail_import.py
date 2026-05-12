@@ -19,6 +19,7 @@ from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.file_attachment import FileAttachment, FileType
 from app.models.user import User, UserRole
+from app.models.user_client_id import UserClientId
 from app.models.supplier import Supplier
 from app.services.file_service import detect_file_type
 
@@ -517,17 +518,20 @@ async def _find_or_create_client(
     client_name: Optional[str],
     client_email: Optional[str] = None,
 ) -> User:
-    """Look up a client User by external_id or email; create one if not found."""
+    """Look up a client User by client_id (UserClientId) or email; create one if not found."""
     from passlib.context import CryptContext
     import secrets
     pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    # 1. Look up by external_id
+    # 1. Look up by client_ext_id in user_client_ids table
     if client_ext_id:
-        result = await db.execute(select(User).where(User.external_id == client_ext_id))
+        result = await db.execute(
+            select(User).join(UserClientId, UserClientId.user_id == User.id)
+            .where(UserClientId.client_id == client_ext_id)
+        )
         user = result.scalar_one_or_none()
         if user:
-            logger.debug(f"Found existing client by external_id={client_ext_id}: id={user.id}")
+            logger.debug(f"Found existing client by client_id={client_ext_id}: user id={user.id}")
             if client_email and user.email.endswith("@imported.local"):
                 user.email = client_email
             return user
@@ -538,8 +542,16 @@ async def _find_or_create_client(
         user = result.scalar_one_or_none()
         if user:
             logger.debug(f"Found existing client by email={client_email}: id={user.id}")
-            if client_ext_id and not user.external_id:
-                user.external_id = client_ext_id
+            if client_ext_id:
+                # Add the client_id to the user if not already there
+                exists_result = await db.execute(
+                    select(UserClientId).where(
+                        UserClientId.user_id == user.id,
+                        UserClientId.client_id == client_ext_id,
+                    )
+                )
+                if not exists_result.scalar_one_or_none():
+                    db.add(UserClientId(user_id=user.id, client_id=client_ext_id))
             return user
 
     # 3. Create new user
@@ -552,10 +564,11 @@ async def _find_or_create_client(
         full_name=name,
         role=UserRole.client,
         is_active=True,
-        external_id=client_ext_id or None,
     )
     db.add(user)
     await db.flush()
+    if client_ext_id:
+        db.add(UserClientId(user_id=user.id, client_id=client_ext_id))
     logger.info(f"Auto-created client user id={user.id} ext_id={client_ext_id} email={email_to_use} name='{name}'")
     return user
 

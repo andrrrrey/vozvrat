@@ -36,8 +36,8 @@ def _unread_condition(user_id: int):
     )
 
 
-async def get_unread_total(user: User, db: AsyncSession) -> int:
-    """Total unread count: messages + unread email notifications (for staff/admin)."""
+async def get_unread_messages_count(user: User, db: AsyncSession) -> int:
+    """Count unread refund messages for the user (used for 'Возвраты' nav badge)."""
     q = (
         select(func.count(Message.id))
         .where(
@@ -55,7 +55,12 @@ async def get_unread_total(user: User, db: AsyncSession) -> int:
                 )
             ),
         )
-    msg_count = (await db.execute(q)).scalar() or 0
+    return (await db.execute(q)).scalar() or 0
+
+
+async def get_unread_total(user: User, db: AsyncSession) -> int:
+    """Total unread count: messages + unread email notifications (for staff/admin, used for bell icon)."""
+    msg_count = await get_unread_messages_count(user, db)
 
     if user.role.value != "client":
         from app.models.mail_notification import MailNotification
@@ -115,12 +120,12 @@ async def mark_refund_read(refund_id: int, user_id: int, db: AsyncSession) -> No
 
 @router.get("/nav-badge", response_class=HTMLResponse)
 async def nav_badge(request: Request, db: AsyncSession = Depends(get_db)):
-    """HTMX partial: badge with total unread count for sidebar nav."""
+    """HTMX partial: badge with unread message count for 'Возвраты' nav item."""
     try:
         user = await get_current_user(request, db)
     except Exception:
         return HTMLResponse("")
-    count = await get_unread_total(user, db)
+    count = await get_unread_messages_count(user, db)
     if count > 0:
         label = str(count) if count < 100 else "99+"
         return HTMLResponse(
@@ -221,4 +226,38 @@ async def mark_read(
     except Exception:
         return JSONResponse({"ok": False})
     await mark_refund_read(refund_id, user.id, db)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/mark-all-read", response_class=JSONResponse)
+async def mark_all_read(request: Request, db: AsyncSession = Depends(get_db)):
+    """Mark all messages and email notifications as read for the current user."""
+    try:
+        user = await get_current_user(request, db)
+    except Exception:
+        return JSONResponse({"ok": False})
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy import update as sa_update
+
+    # Mark all messages as read (those the user hasn't read yet and didn't write)
+    msg_ids_result = await db.execute(
+        select(Message.id).where(
+            _unread_condition(user.id),
+            Message.user_id != user.id,
+        )
+    )
+    msg_ids = msg_ids_result.scalars().all()
+    if msg_ids:
+        stmt = pg_insert(MessageRead).values(
+            [{"message_id": mid, "user_id": user.id} for mid in msg_ids]
+        ).on_conflict_do_nothing()
+        await db.execute(stmt)
+
+    # Mark all email notifications as read (staff/admin only)
+    if user.role.value != "client":
+        from app.models.mail_notification import MailNotification
+        await db.execute(sa_update(MailNotification).values(is_read=True))
+
+    await db.commit()
     return JSONResponse({"ok": True})

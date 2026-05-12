@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, update, delete
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.user_client_id import UserClientId
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.services.auth import get_current_user, hash_password
 
@@ -195,13 +196,19 @@ async def get_user_form(
     templates = Jinja2Templates(directory=templates_dir)
 
     target_user = None
+    client_ids = []
     if user_id:
         result = await db.execute(select(User).where(User.id == user_id))
         target_user = result.scalar_one_or_none()
+        if target_user:
+            cids_result = await db.execute(
+                select(UserClientId).where(UserClientId.user_id == user_id).order_by(UserClientId.id)
+            )
+            client_ids = cids_result.scalars().all()
 
     return templates.TemplateResponse(
         "users/_form_modal.html",
-        {"request": request, "target_user": target_user, "roles": UserRole},
+        {"request": request, "target_user": target_user, "roles": UserRole, "client_ids": client_ids},
     )
 
 
@@ -293,3 +300,57 @@ async def invite_client(
 
     logger.info(f"Client invited: email={email} user_id={target.id} refund_id={refund_id}")
     return JSONResponse({"ok": True, "user_id": target.id, "message": f"Данные входа отправлены на {email}"})
+
+
+# ---------------------------------------------------------------------------
+# Client ID management
+# ---------------------------------------------------------------------------
+
+@router.get("/{user_id}/client-ids")
+async def list_client_ids(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(
+        select(UserClientId).where(UserClientId.user_id == user_id).order_by(UserClientId.id)
+    )
+    ids = result.scalars().all()
+    return [{"id": r.id, "client_id": r.client_id} for r in ids]
+
+
+@router.post("/{user_id}/client-ids")
+async def add_client_id(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    form = await request.form()
+    client_id = str(form.get("client_id", "")).strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id обязателен")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    existing = await db.execute(
+        select(UserClientId).where(UserClientId.client_id == client_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Такой ID уже используется")
+
+    new_id = UserClientId(user_id=user_id, client_id=client_id)
+    db.add(new_id)
+    await db.flush()
+    await db.refresh(new_id)
+    logger.info(f"Added client_id={client_id} to user id={user_id}")
+    return {"id": new_id.id, "client_id": new_id.client_id}
+
+
+@router.delete("/{user_id}/client-ids/{cid_id}")
+async def delete_client_id(user_id: int, cid_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_admin(request, db)
+    result = await db.execute(
+        select(UserClientId).where(UserClientId.id == cid_id, UserClientId.user_id == user_id)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="ID не найден")
+    await db.delete(record)
+    await db.flush()
+    return {"ok": True}
