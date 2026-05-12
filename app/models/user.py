@@ -21,10 +21,12 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.staff)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    external_id: Mapped[Optional[str]] = mapped_column(String(100), unique=True, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     # Relationships
+    client_ids: Mapped[list["UserClientId"]] = relationship(
+        "UserClientId", back_populates="user", cascade="all, delete-orphan"
+    )
     refunds_as_client: Mapped[list["Refund"]] = relationship(
         "Refund", foreign_keys="Refund.client_user_id", back_populates="client_user"
     )

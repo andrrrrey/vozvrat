@@ -669,6 +669,30 @@ async def send_supplier_email_endpoint(
     return JSONResponse({"ok": True, "message": "Письмо поставщику отправлено"})
 
 
+@router.patch("/{refund_id}/reason")
+async def update_reason(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    form = await request.form()
+    reason = str(form.get("reason", "")).strip() or None
+
+    result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = result.scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    refund.reason = reason
+    await db.flush()
+    logger.info(f"Updated reason for refund id={refund_id} by user id={user.id}")
+    return JSONResponse({"ok": True})
+
+
 @router.post("/{refund_id}/status")
 async def update_status(
     refund_id: int,

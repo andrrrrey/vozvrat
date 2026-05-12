@@ -1,5 +1,13 @@
 {% if messages or email_notifs %}
-<div class="py-1 max-h-96 overflow-y-auto">
+<div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50">
+    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Уведомления</p>
+    <button type="button"
+        onclick="markAllRead()"
+        class="text-[10px] text-blue-500 hover:text-blue-700 font-semibold transition-colors">
+        Отметить все прочитанным
+    </button>
+</div>
+<div class="py-1 max-h-96 overflow-y-auto" id="bell-notifications-list">
 
     {% if email_notifs %}
     <div class="px-4 py-2 bg-gray-50 border-b border-gray-100">
@@ -71,3 +79,22 @@
     <p class="text-sm text-gray-400">Нет новых уведомлений</p>
 </div>
 {% endif %}
+
+<script>
+async function markAllRead() {
+    try {
+        const res = await fetch('/api/notifications/mark-all-read', { method: 'POST' });
+        if (!res.ok) return;
+        // Reload bell content in both desktop and mobile dropdowns
+        ['desktop-bell-content', 'mobile-bell-content'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) htmx.trigger(el, 'bellOpen');
+        });
+        // Refresh all badges
+        ['nav-unread-badge-wrap', 'mobile-bell-badge-wrap', 'bell-badge-wrap'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) htmx.trigger(el, 'load');
+        });
+    } catch {}
+}
+</script>

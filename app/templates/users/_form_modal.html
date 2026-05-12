@@ -71,4 +71,82 @@
             </button>
         </div>
     </form>
+
+    {% if target_user %}
+    <!-- Client IDs section -->
+    <div class="mt-6 pt-5 border-t border-gray-100">
+        <p class="text-[11px] font-bold text-gray-400 uppercase mb-3">ID клиента</p>
+        <div id="client-ids-list-{{ target_user.id }}" class="space-y-1 mb-3">
+            {% for cid in client_ids %}
+            <div id="cid-row-{{ cid.id }}" class="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
+                <span class="text-sm font-mono text-gray-700">{{ cid.client_id }}</span>
+                <button type="button"
+                    onclick="deleteClientId({{ target_user.id }}, {{ cid.id }})"
+                    class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors rounded-full hover:bg-red-50">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            {% else %}
+            <p id="no-cids-msg-{{ target_user.id }}" class="text-xs text-gray-400">Нет привязанных ID</p>
+            {% endfor %}
+        </div>
+        <form onsubmit="addClientId(event, {{ target_user.id }})" class="flex gap-2">
+            <input type="text" id="new-client-id-{{ target_user.id }}" placeholder="Введите ID клиента"
+                class="flex-1 bg-gray-50 rounded-xl px-3 py-2 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+            <button type="submit"
+                class="px-3 py-2 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                Добавить
+            </button>
+        </form>
+    </div>
+
+    <script>
+    async function addClientId(e, userId) {
+        e.preventDefault();
+        const input = document.getElementById('new-client-id-' + userId);
+        const val = input.value.trim();
+        if (!val) return;
+        const fd = new FormData();
+        fd.set('client_id', val);
+        const res = await fetch('/api/users/' + userId + '/client-ids', { method: 'POST', body: fd });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast('Ошибка: ' + (err.detail || 'Не удалось добавить'), 'error');
+            return;
+        }
+        const data = await res.json();
+        input.value = '';
+        // Remove "no IDs" placeholder
+        const noMsg = document.getElementById('no-cids-msg-' + userId);
+        if (noMsg) noMsg.remove();
+        // Append new row
+        const list = document.getElementById('client-ids-list-' + userId);
+        const row = document.createElement('div');
+        row.id = 'cid-row-' + data.id;
+        row.className = 'flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2';
+        row.innerHTML = `<span class="text-sm font-mono text-gray-700">${data.client_id}</span>
+            <button type="button" onclick="deleteClientId(${userId}, ${data.id})"
+                class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors rounded-full hover:bg-red-50">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>`;
+        list.appendChild(row);
+        showToast('ID добавлен');
+    }
+
+    async function deleteClientId(userId, cidId) {
+        const res = await fetch('/api/users/' + userId + '/client-ids/' + cidId, { method: 'DELETE' });
+        if (!res.ok) {
+            showToast('Ошибка удаления', 'error');
+            return;
+        }
+        const row = document.getElementById('cid-row-' + cidId);
+        if (row) row.remove();
+        const list = document.getElementById('client-ids-list-' + userId);
+        if (list && list.children.length === 0) {
+            list.innerHTML = '<p id="no-cids-msg-' + userId + '" class="text-xs text-gray-400">Нет привязанных ID</p>';
+        }
+        showToast('ID удалён');
+    }
+    </script>
+    {% endif %}
 </div>

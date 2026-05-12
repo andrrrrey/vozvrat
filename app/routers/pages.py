@@ -223,6 +223,7 @@ async def refund_detail_page(
     await mark_refund_read(refund_id, user.id, db)
 
     from app.models.user import User as UserModel, UserRole
+    from app.models.user_client_id import UserClientId
     from app.services.settings_service import get_setting
     clients_result = await db.execute(
         select(UserModel).where(UserModel.role == UserRole.client, UserModel.is_active == True).order_by(UserModel.full_name)
@@ -235,6 +236,13 @@ async def refund_detail_page(
     if refund.email_from:
         client_email_for_invite = _email_mod.utils.parseaddr(refund.email_from)[1]
 
+    client_user_ext_ids = []
+    if refund.client_user_id:
+        cids_result = await db.execute(
+            select(UserClientId).where(UserClientId.user_id == refund.client_user_id).order_by(UserClientId.id)
+        )
+        client_user_ext_ids = [r.client_id for r in cids_result.scalars().all()]
+
     return templates.TemplateResponse("refunds/card.html", {
         "request": request,
         "user": user,
@@ -243,6 +251,7 @@ async def refund_detail_page(
         "clients": clients,
         "auto_invite_enabled": auto_invite,
         "client_email_for_invite": client_email_for_invite,
+        "client_user_ext_ids": client_user_ext_ids,
     })
 
 
