@@ -61,6 +61,7 @@ async def send_supplier_email(
     reason: Optional[str],
     supplier_doc_number: Optional[str],
     photo_paths: list[str],
+    notes: Optional[str] = None,
 ) -> None:
     """Send a return notification email to the supplier."""
     smtp = await _get_smtp_settings(db)
@@ -98,6 +99,9 @@ async def send_supplier_email(
 
     if supplier_doc_number:
         lines += [f"Номер документа поставщика: {supplier_doc_number}", ""]
+
+    if notes:
+        lines += ["─" * 40, "ЗАМЕТКИ:", notes, ""]
 
     lines += [
         "─" * 40,

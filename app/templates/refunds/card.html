@@ -254,13 +254,7 @@
                         <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                         <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
                         <p class="text-[10px] text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG до {{ settings.MAX_UPLOAD_SIZE_MB if settings else 20 }} МБ</p>
-                        <input type="file" name="file" class="hidden"
-                            hx-post="/api/files/upload/{{ refund.id }}"
-                            hx-encoding="multipart/form-data"
-                            hx-target="#files-list"
-                            hx-swap="innerHTML"
-                            hx-trigger="change"
-                            onchange="this.closest('form') && this.closest('form').requestSubmit()">
+                        <input type="file" name="file" class="hidden">
                     </label>
                 </div>
                 {% endif %}
