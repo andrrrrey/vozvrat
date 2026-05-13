@@ -290,6 +290,22 @@
                     </button>
                 </form>
             </div>
+
+            <!-- Notes -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Заметки</p>
+                <textarea id="notes-input" rows="4"
+                    placeholder="Добавить заметку..."
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                    oninput="scheduleNotesSave()">{{ refund.notes or '' }}</textarea>
+                <div class="flex items-center justify-between mt-2">
+                    <span id="notes-status" class="text-[10px] text-gray-400"></span>
+                    <button type="button" onclick="saveNotes()"
+                        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors">
+                        Сохранить
+                    </button>
+                </div>
+            </div>
             {% endif %}
         </div>
 
@@ -499,6 +515,48 @@ function confirmDeleteRefund(refundId, displayId) {
         }
     })
     .catch(() => alert('Ошибка сети при удалении возврата'));
+}
+
+async function deleteFile(fileId) {
+    if (!confirm('Удалить файл?')) return;
+    try {
+        const res = await fetch('/api/files/' + fileId, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast('Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error');
+            return;
+        }
+        const html = await res.text();
+        document.getElementById('files-list').innerHTML = html;
+        showToast('Файл удалён');
+    } catch {
+        showToast('Ошибка сети', 'error');
+    }
+}
+
+let _notesSaveTimer = null;
+function scheduleNotesSave() {
+    clearTimeout(_notesSaveTimer);
+    document.getElementById('notes-status').textContent = 'Изменено...';
+    _notesSaveTimer = setTimeout(saveNotes, 2000);
+}
+
+async function saveNotes() {
+    clearTimeout(_notesSaveTimer);
+    const text = document.getElementById('notes-input').value;
+    const fd = new FormData();
+    fd.set('notes', text);
+    try {
+        const res = await fetch('/api/refunds/{{ refund.id }}/notes', { method: 'PATCH', body: fd });
+        if (!res.ok) {
+            document.getElementById('notes-status').textContent = 'Ошибка сохранения';
+            return;
+        }
+        document.getElementById('notes-status').textContent = 'Сохранено';
+        setTimeout(() => { const el = document.getElementById('notes-status'); if (el) el.textContent = ''; }, 2000);
+    } catch {
+        document.getElementById('notes-status').textContent = 'Ошибка сети';
+    }
 }
 
 // Handle file upload via HTMX with input file

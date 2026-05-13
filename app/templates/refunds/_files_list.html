@@ -1,5 +1,5 @@
 {% for file in refund.files %}
-<div class="bg-gray-50 rounded-2xl p-3 flex items-center gap-3 group">
+<div class="bg-gray-50 rounded-2xl p-3 flex items-center gap-3 group" id="file-row-{{ file.id }}">
     <div class="w-10 h-10 rounded-xl {{ file.icon_classes }} flex items-center justify-center shrink-0">
         <span class="text-[10px] font-bold mono">{{ file.type_label }}</span>
     </div>
@@ -12,6 +12,13 @@
         title="Скачать">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
     </a>
+    {% if user and user.role.value in ('admin', 'staff') %}
+    <button onclick="deleteFile({{ file.id }})"
+        class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-white rounded-lg shadow-sm text-gray-400 hover:text-red-600"
+        title="Удалить">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+    </button>
+    {% endif %}
 </div>
 {% else %}
 <p class="text-xs text-gray-400 text-center py-4">Файлы не прикреплены</p>
