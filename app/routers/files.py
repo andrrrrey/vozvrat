@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.refund import Refund
 from app.models.file_attachment import FileAttachment
@@ -38,7 +39,9 @@ async def upload_file(
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
     templates = Jinja2Templates(directory=templates_dir)
 
-    result2 = await db.execute(select(Refund).where(Refund.id == refund_id))
+    result2 = await db.execute(
+        select(Refund).options(selectinload(Refund.files)).where(Refund.id == refund_id)
+    )
     updated_refund = result2.scalar_one()
 
     return templates.TemplateResponse(
@@ -77,7 +80,9 @@ async def delete_file(
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
     templates = Jinja2Templates(directory=templates_dir)
 
-    result2 = await db.execute(select(Refund).where(Refund.id == refund_id))
+    result2 = await db.execute(
+        select(Refund).options(selectinload(Refund.files)).where(Refund.id == refund_id)
+    )
     updated_refund = result2.scalar_one()
 
     return templates.TemplateResponse(
