@@ -655,6 +655,7 @@ async def send_supplier_email_endpoint(
             reason=refund.reason,
             supplier_doc_number=refund.supplier_doc_number,
             photo_paths=photo_paths,
+            notes=refund.notes,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
