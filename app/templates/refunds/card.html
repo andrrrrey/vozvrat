@@ -71,6 +71,38 @@
                 <!-- Product Details -->
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Детали товара</p>
+                    {% if user.role.value in ('admin', 'staff') %}
+                    <div class="mb-3 pb-3 border-b border-gray-100">
+                        <div class="flex items-center justify-between text-xs mb-2">
+                            <span class="text-gray-400">Поставщик</span>
+                            {% if refund.supplier %}
+                            <span class="font-medium text-gray-700">{{ refund.supplier.name }}</span>
+                            {% elif refund.supplier_name %}
+                            <div class="flex items-center gap-2">
+                                <span class="font-medium text-gray-700">{{ refund.supplier_name }}</span>
+                                <button onclick="openCreateSupplierModal('{{ refund.supplier_name | e }}', {{ refund.id }})"
+                                    class="px-2 py-0.5 text-[10px] font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap">
+                                    Создать поставщика
+                                </button>
+                            </div>
+                            {% else %}
+                            <span class="text-gray-400 text-[11px]">не выбран</span>
+                            {% endif %}
+                        </div>
+                        <form id="assign-supplier-form" class="flex gap-2 items-center">
+                            <select id="assign-supplier-select" class="flex-1 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                                <option value="">— Не выбран —</option>
+                                {% for s in suppliers %}
+                                <option value="{{ s.id }}" {% if refund.supplier_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" onclick="assignSupplier({{ refund.id }})"
+                                class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                                Сохранить
+                            </button>
+                        </form>
+                    </div>
+                    {% else %}
                     {% if refund.supplier %}
                     <div class="flex justify-between text-xs mb-3 pb-3 border-b border-gray-100">
                         <span class="text-gray-400">Поставщик</span>
@@ -79,16 +111,9 @@
                     {% elif refund.supplier_name %}
                     <div class="flex justify-between items-center text-xs mb-3 pb-3 border-b border-gray-100">
                         <span class="text-gray-400">Поставщик</span>
-                        <div class="flex items-center gap-2">
-                            <span class="font-medium text-gray-700">{{ refund.supplier_name }}</span>
-                            {% if user.role.value in ('admin', 'staff') %}
-                            <button onclick="openCreateSupplierModal('{{ refund.supplier_name | e }}', {{ refund.id }})"
-                                class="px-2 py-0.5 text-[10px] font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap">
-                                Создать поставщика
-                            </button>
-                            {% endif %}
-                        </div>
+                        <span class="font-medium text-gray-700">{{ refund.supplier_name }}</span>
                     </div>
+                    {% endif %}
                     {% endif %}
                     {% if refund.supplier_doc_number %}
                     <div class="flex justify-between text-xs mb-3 pb-3 border-b border-gray-100">
@@ -423,6 +448,24 @@ async function saveReason(refundId) {
             : `<p class="text-xs text-gray-400">Не указана</p>`;
         toggleReasonEdit();
         showToast('Причина сохранена');
+    } catch {
+        showToast('Ошибка сети', 'error');
+    }
+}
+
+async function assignSupplier(refundId) {
+    const sel = document.getElementById('assign-supplier-select');
+    const data = new FormData();
+    data.set('supplier_id', sel.value);
+    try {
+        const res = await fetch('/api/refunds/' + refundId + '/assign-supplier', { method: 'POST', body: data });
+        const json = await res.json();
+        if (json.ok) {
+            showToast('Поставщик сохранён');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showToast(json.detail || 'Ошибка', 'error');
+        }
     } catch {
         showToast('Ошибка сети', 'error');
     }
