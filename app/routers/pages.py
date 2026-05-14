@@ -243,12 +243,18 @@ async def refund_detail_page(
         )
         client_user_ext_ids = [r.client_id for r in cids_result.scalars().all()]
 
+    suppliers_result = await db.execute(
+        select(Supplier).where(Supplier.is_active == True).order_by(Supplier.name)
+    )
+    suppliers = suppliers_result.scalars().all()
+
     return templates.TemplateResponse("refunds/card.html", {
         "request": request,
         "user": user,
         "refund": refund,
         "statuses": RefundStatus,
         "clients": clients,
+        "suppliers": suppliers,
         "auto_invite_enabled": auto_invite,
         "client_email_for_invite": client_email_for_invite,
         "client_user_ext_ids": client_user_ext_ids,
