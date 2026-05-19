@@ -736,7 +736,6 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         await db.flush()
 
         # Upsert MailNotification linking this email to the new refund
-        from app.models.mail_notification import MailNotification
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         _notif_insert = pg_insert(MailNotification).values(
             email_uid=uid,
@@ -745,9 +744,11 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             from_name=(email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1])[:255],
             refund_id=refund.id,
             is_read=False,
+            processing_status="processed",
+            skip_reason=None,
         ).on_conflict_do_update(
-            index_elements=['email_uid'],
-            set_={'refund_id': refund.id}
+            index_elements=["email_uid"],
+            set_={"refund_id": refund.id, "processing_status": "processed", "skip_reason": None}
         )
         await db.execute(_notif_insert)
 
