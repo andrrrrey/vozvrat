@@ -21,7 +21,7 @@
         <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
                         <p class="font-semibold text-gray-900 truncate {% if not em.is_seen %}text-black{% endif %}">
                             {{ em.subject }}
                         </p>
@@ -32,6 +32,25 @@
                             </svg>
                             Заявка создана
                         </span>
+                        {% elif email_notifs is defined and em.uid in email_notifs %}
+                            {% set notif = email_notifs[em.uid] %}
+                            {% if notif.status == 'skipped' %}
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 whitespace-nowrap shrink-0"
+                                  title="{{ notif.reason or 'Пропущено автообработчиком' }}">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Пропущено
+                            </span>
+                            {% elif notif.status == 'failed' %}
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 whitespace-nowrap shrink-0"
+                                  title="{{ notif.reason or 'Ошибка обработки' }}">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Ошибка
+                            </span>
+                            {% endif %}
                         {% endif %}
                     </div>
                     <p class="text-sm text-gray-600 truncate mt-0.5">
@@ -181,6 +200,32 @@
                     {% endfor %}
                 </div>
             </div>
+            {% endif %}
+
+            <!-- Processing status details -->
+            {% if email_notifs is defined and em.uid in email_notifs and em.uid not in refund_uids %}
+                {% set notif = email_notifs[em.uid] %}
+                {% if notif.status == 'skipped' and notif.reason %}
+                <div class="mb-4 flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                    <svg class="w-4 h-4 mt-0.5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <div>
+                        <p class="font-semibold">Письмо пропущено автообработчиком</p>
+                        <p class="text-amber-700 mt-0.5">{{ notif.reason }}</p>
+                    </div>
+                </div>
+                {% elif notif.status == 'failed' and notif.reason %}
+                <div class="mb-4 flex items-start gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
+                    <svg class="w-4 h-4 mt-0.5 shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <div>
+                        <p class="font-semibold">Ошибка автоматической обработки</p>
+                        <p class="text-red-700 mt-0.5 font-mono text-xs">{{ notif.reason }}</p>
+                    </div>
+                </div>
+                {% endif %}
             {% endif %}
 
             <!-- Create refund button -->
