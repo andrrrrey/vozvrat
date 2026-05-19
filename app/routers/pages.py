@@ -328,6 +328,7 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     fetch_error = None
     auto_create_enabled = False
     refund_uids = set()
+    email_notifs: dict = {}
 
     if imap_configured:
         try:
@@ -349,6 +350,23 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         )
         refund_uids = set(r[0] for r in result.all())
 
+        # Get processing status for displayed emails
+        from app.models.mail_notification import MailNotification
+        displayed_uids = [em["uid"] for em in emails if em.get("uid")]
+        email_notifs: dict = {}
+        if displayed_uids:
+            notif_result = await db.execute(
+                select(
+                    MailNotification.email_uid,
+                    MailNotification.processing_status,
+                    MailNotification.skip_reason,
+                ).where(MailNotification.email_uid.in_(displayed_uids))
+            )
+            email_notifs = {
+                r.email_uid: {"status": r.processing_status, "reason": r.skip_reason}
+                for r in notif_result.all()
+            }
+
     return templates.TemplateResponse("emails/list.html", {
         "request": request,
         "user": user,
@@ -357,6 +375,7 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         "fetch_error": fetch_error,
         "auto_create_enabled": auto_create_enabled,
         "refund_uids": refund_uids,
+        "email_notifs": email_notifs,
         "index_offset": 0,
     })
 

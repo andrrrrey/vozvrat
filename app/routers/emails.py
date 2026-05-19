@@ -95,9 +95,27 @@ async def load_more_emails(
     )
     refund_uids = set(r[0] for r in result.all())
 
+    # Get processing status for displayed emails
+    from app.models.mail_notification import MailNotification
+    displayed_uids = [em["uid"] for em in emails if em.get("uid")]
+    email_notifs: dict = {}
+    if displayed_uids:
+        notif_result = await db.execute(
+            select(
+                MailNotification.email_uid,
+                MailNotification.processing_status,
+                MailNotification.skip_reason,
+            ).where(MailNotification.email_uid.in_(displayed_uids))
+        )
+        email_notifs = {
+            r.email_uid: {"status": r.processing_status, "reason": r.skip_reason}
+            for r in notif_result.all()
+        }
+
     return templates.TemplateResponse("emails/_email_cards.html", {
         "request": request,
         "emails": emails,
         "refund_uids": refund_uids,
+        "email_notifs": email_notifs,
         "index_offset": offset,
     })

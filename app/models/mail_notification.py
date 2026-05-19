@@ -17,6 +17,9 @@ class MailNotification(Base):
         Integer, ForeignKey("refunds.id", ondelete="SET NULL"), nullable=True
     )
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 'new' | 'processed' | 'skipped' | 'failed'
+    processing_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    skip_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     refund: Mapped[Optional["Refund"]] = relationship("Refund", foreign_keys=[refund_id])

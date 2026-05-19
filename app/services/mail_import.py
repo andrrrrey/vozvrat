@@ -12,12 +12,13 @@ from typing import Optional
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sa_update
 
 from app.config import settings
 from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.file_attachment import FileAttachment, FileType
+from app.models.mail_notification import MailNotification
 from app.models.user import User, UserRole
 from app.models.user_client_id import UserClientId
 from app.models.supplier import Supplier
@@ -79,7 +80,7 @@ def try_parse_xls(content: bytes) -> list[dict]:
 
         header_row = None
         header_idx = 0
-        for i, row in enumerate(rows[:5]):
+        for i, row in enumerate(rows[:20]):
             row_lower = [str(c).lower().strip() if c is not None else "" for c in row]
             joined = " ".join(row_lower)
             if any(k in joined for k in ["артикул", "article", "код"]):
@@ -807,11 +808,6 @@ def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]
                 break
             uid_str = uid_bytes.decode() if isinstance(uid_bytes, bytes) else str(uid_bytes)
             results.append((uid_str, raw))
-            # Mark as seen so we don't reprocess on next cycle
-            try:
-                conn.uid("STORE", uid_bytes, "+FLAGS", "\\Seen")
-            except Exception:
-                pass
     except Exception as e:
         logger.error(f"IMAP sync fetch error: {e}", exc_info=True)
     finally:
@@ -821,6 +817,28 @@ def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]
             except Exception:
                 pass
     return results
+
+
+def _imap_mark_seen_sync(uid_strs: list[str]) -> None:
+    """Mark a list of UIDs as \\Seen in IMAP. Best-effort — errors are logged."""
+    if not uid_strs:
+        return
+    conn = None
+    try:
+        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
+                                  timeout=_IMAP_TIMEOUT)
+        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
+        conn.select(settings.MAIL_FOLDER)
+        uid_list = ",".join(uid_strs).encode()
+        conn.uid("STORE", uid_list, "+FLAGS", "\\Seen")
+    except Exception as e:
+        logger.error(f"Failed to mark UIDs as Seen in IMAP: {e}", exc_info=True)
+    finally:
+        if conn:
+            try:
+                conn.logout()
+            except Exception:
+                pass
 
 
 async def process_emails(db: AsyncSession) -> int:
@@ -854,18 +872,41 @@ async def process_emails(db: AsyncSession) -> int:
     # Phase 2: process each fetched email with async DB
     processed = 0
     skipped = 0
+    failed = 0
+    uids_to_mark_seen: list[str] = []
+
     for uid, raw in raw_emails:
         try:
-            accepted = await _process_raw_email(uid, raw, db, auto_since=auto_since)
+            accepted, _reason = await _process_raw_email(uid, raw, db, auto_since=auto_since)
             if accepted:
                 processed += 1
             else:
                 skipped += 1
+            # Mark Seen for both accepted and filtered emails; failed ones stay Unseen for retry
+            uids_to_mark_seen.append(uid)
         except Exception as e:
+            failed += 1
             logger.error(f"Error processing email uid={uid}: {e}", exc_info=True)
+            # Record the failure in mail_notifications if the record already exists
+            try:
+                await db.execute(
+                    sa_update(MailNotification)
+                    .where(MailNotification.email_uid == uid)
+                    .values(processing_status="failed", skip_reason=str(e)[:500])
+                )
+                await db.commit()
+            except Exception:
+                pass
 
     if skipped:
         logger.info(f"Skipped {skipped} emails (did not pass filters)")
+    if failed:
+        logger.warning(f"Failed to process {failed} emails (will retry next cycle)")
+
+    # Mark Seen in IMAP for all successfully processed or filtered emails
+    if uids_to_mark_seen:
+        await loop.run_in_executor(None, lambda: _imap_mark_seen_sync(uids_to_mark_seen))
+
     return processed
 
 
@@ -874,8 +915,10 @@ async def _process_raw_email(
     raw: bytes,
     db: AsyncSession,
     auto_since: Optional[datetime] = None,
-) -> bool:
-    """Process a pre-fetched raw email. Returns True if a refund was created."""
+) -> tuple[bool, Optional[str]]:
+    """Process a pre-fetched raw email. Returns (accepted, skip_reason)."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     msg = email.message_from_bytes(raw)
 
     subject = decode_str(msg.get("Subject", "Без темы"))
@@ -889,13 +932,11 @@ async def _process_raw_email(
             email_date = parsedate_to_datetime(msg.get("Date", ""))
             if email_date < auto_since:
                 logger.debug(f"Skipped (before auto-create enabled): subject='{subject}' date={email_date}")
-                return False
+                return False, "before_auto_since"
         except Exception:
             pass
 
     # Upsert MailNotification so the bell reflects all new emails
-    from app.models.mail_notification import MailNotification
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
     sender_name_for_notif = email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1]
     notif_stmt = pg_insert(MailNotification).values(
         email_uid=uid,
@@ -904,20 +945,41 @@ async def _process_raw_email(
         from_name=sender_name_for_notif[:255] if sender_name_for_notif else None,
         refund_id=None,
         is_read=False,
-    ).on_conflict_do_nothing(index_elements=['email_uid'])
+        processing_status="new",
+        skip_reason=None,
+    ).on_conflict_do_nothing(index_elements=["email_uid"])
     await db.execute(notif_stmt)
+
+    # Deduplication: if already processed successfully, skip without error
+    existing = await db.execute(
+        select(MailNotification.processing_status).where(MailNotification.email_uid == uid)
+    )
+    existing_status = existing.scalar_one_or_none()
+    if existing_status == "processed":
+        logger.debug(f"Skipped (already processed in DB): uid={uid}")
+        return True, None
+
+    async def _record_skip(reason: str) -> None:
+        await db.execute(
+            sa_update(MailNotification)
+            .where(MailNotification.email_uid == uid)
+            .values(processing_status="skipped", skip_reason=reason)
+        )
 
     if not _is_allowed_sender(from_header):
         logger.debug(f"Skipped (sender not in whitelist): from='{from_header}'")
-        return False
+        await _record_skip("Отправитель не в списке разрешённых")
+        return False, "sender_not_allowed"
 
     if not _has_subject_keyword(subject):
         logger.debug(f"Skipped (no keyword in subject): subject='{subject}'")
-        return False
+        await _record_skip("Тема письма не содержит ключевых слов")
+        return False, "no_keyword"
 
     if settings.MAIL_REQUIRE_XLS and not _has_xls_attachment(msg):
         logger.debug(f"Skipped (no XLS attachment): subject='{subject}' from='{from_header}'")
-        return False
+        await _record_skip("Нет XLS/XLSX вложения")
+        return False, "no_xls"
 
     body_text = get_email_body_text(msg)
     parsed = parse_body_data(f"{subject}\n{body_text}")
@@ -1046,12 +1108,11 @@ async def _process_raw_email(
 
     await db.flush()
 
-    from sqlalchemy import update as sa_update
     await db.execute(
         sa_update(MailNotification)
         .where(MailNotification.email_uid == uid)
-        .values(refund_id=refund.id)
+        .values(refund_id=refund.id, processing_status="processed", skip_reason=None)
     )
 
     logger.info(f"Created refund {display_id} (id={refund.id}) from email uid={uid}")
-    return True
+    return True, None
