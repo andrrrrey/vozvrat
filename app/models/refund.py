@@ -9,6 +9,8 @@ from app.database import Base
 class RefundStatus(str, enum.Enum):
     received = "received"
     approved = "approved"
+    rejected = "rejected"
+    waiting_for_part = "waiting_for_part"
     archive = "archive"
 
 
@@ -21,12 +23,16 @@ class RefundSource(str, enum.Enum):
 STATUS_LABELS = {
     RefundStatus.received: "Получен",
     RefundStatus.approved: "Согласован",
+    RefundStatus.rejected: "Отказано",
+    RefundStatus.waiting_for_part: "Ожидаем деталь",
     RefundStatus.archive: "Архив",
 }
 
 STATUS_COLORS = {
     RefundStatus.received: "bg-blue-100 text-blue-700",
     RefundStatus.approved: "bg-green-100 text-green-700",
+    RefundStatus.rejected: "bg-red-100 text-red-700",
+    RefundStatus.waiting_for_part: "bg-amber-100 text-amber-700",
     RefundStatus.archive: "bg-gray-100 text-gray-500",
 }
 

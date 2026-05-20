@@ -39,6 +39,8 @@
                     <option value="">Все статусы</option>
                     <option value="received" {% if current_status == 'received' %}selected{% endif %}>Получен</option>
                     <option value="approved" {% if current_status == 'approved' %}selected{% endif %}>Согласован</option>
+                    <option value="rejected" {% if current_status == 'rejected' %}selected{% endif %}>Отказано</option>
+                    <option value="waiting_for_part" {% if current_status == 'waiting_for_part' %}selected{% endif %}>Ожидаем деталь</option>
                     <option value="archive" {% if current_status == 'archive' %}selected{% endif %}>Архив</option>
                 </select>
             </div>
