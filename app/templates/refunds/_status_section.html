@@ -28,6 +28,26 @@
             Согласован
         </button>
         {% endif %}
+        {% if refund.status.value != 'rejected' %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "rejected"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            class="px-4 py-2 bg-red-100 text-red-700 rounded-xl text-xs font-bold hover:bg-red-200 transition-colors">
+            Отказано
+        </button>
+        {% endif %}
+        {% if refund.status.value != 'waiting_for_part' %}
+        <button
+            hx-post="/api/refunds/{{ refund.id }}/status"
+            hx-vals='{"status": "waiting_for_part"}'
+            hx-target="#status-section"
+            hx-swap="outerHTML"
+            class="px-4 py-2 bg-amber-100 text-amber-700 rounded-xl text-xs font-bold hover:bg-amber-200 transition-colors">
+            Ожидаем деталь
+        </button>
+        {% endif %}
         {% if refund.status.value != 'archive' %}
         <button
             hx-post="/api/refunds/{{ refund.id }}/status"
