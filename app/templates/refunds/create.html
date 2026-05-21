@@ -90,7 +90,7 @@
                             <p class="text-sm text-gray-400 font-medium">Перетащите файлы или нажмите для выбора</p>
                             <p class="text-xs text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG</p>
                             <div id="file-names" class="mt-2 text-xs text-gray-500 font-medium"></div>
-                            <input type="file" name="file" multiple class="hidden" onchange="showFileNames(this)">
+                            <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png" onchange="showFileNames(this)">
                         </label>
                     </div>
                 </div>
@@ -110,10 +110,32 @@
 </div>
 
 <script>
+const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png']);
+const MAX_SIZE = 20 * 1024 * 1024;
+
 function showFileNames(input) {
     const div = document.getElementById('file-names');
-    const files = Array.from(input.files);
-    div.textContent = files.length > 0 ? files.map(f => f.name).join(', ') : '';
+    const valid = [];
+    const errors = [];
+
+    Array.from(input.files).forEach(f => {
+        const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
+        if (!ALLOWED_EXTS.has(ext)) {
+            errors.push(f.name + ' — недопустимый формат');
+        } else if (f.size > MAX_SIZE) {
+            errors.push(f.name + ' — превышает 20 МБ');
+        } else {
+            valid.push(f);
+        }
+    });
+
+    const dt = new DataTransfer();
+    valid.forEach(f => dt.items.add(f));
+    input.files = dt.files;
+
+    const validText = valid.map(f => f.name).join(', ');
+    const errorText = errors.length ? ' | Отклонено: ' + errors.join('; ') : '';
+    div.textContent = validText + errorText;
 }
 </script>
 {% endblock %}
