@@ -13,11 +13,14 @@ from app.models.refund import Refund
 logger = logging.getLogger(__name__)
 
 
+ALLOWED_EXTENSIONS = {".xls", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png"}
+
+
 def detect_file_type(filename: str) -> FileType:
     ext = Path(filename).suffix.lower()
     if ext in (".xls", ".xlsx"):
         return FileType.xls
-    elif ext in (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"):
+    elif ext in (".jpg", ".jpeg", ".png"):
         return FileType.photo
     elif ext == ".pdf":
         return FileType.pdf_ukd
@@ -30,6 +33,13 @@ async def save_file(
     db: AsyncSession,
     uploaded_by_id: Optional[int] = None,
 ) -> FileAttachment:
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Недопустимый тип файла. Разрешены: XLS, XLSX, PDF, JPG, PNG",
+        )
+
     content = await file.read()
     file_size = len(content)
 
