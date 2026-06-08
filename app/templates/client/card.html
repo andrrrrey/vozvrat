@@ -57,19 +57,35 @@
             </div>
 
             <!-- Attached Files -->
-            {% if refund.files %}
+            {% if client_files %}
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Прикреплённые файлы</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {% for file in refund.files %}
+                    {% for file in client_files %}
                     <div class="bg-gray-50 rounded-2xl p-3 flex items-center gap-3 group">
+                        {% if file.is_image %}
+                        <button type="button"
+                            onclick="openImagePreview('/api/files/{{ file.id }}/preview', '{{ file.filename | e }}')"
+                            class="w-10 h-10 rounded-xl overflow-hidden shrink-0 ring-1 ring-gray-200 hover:ring-gray-400 transition" title="Просмотреть">
+                            <img src="/api/files/{{ file.id }}/preview" alt="{{ file.filename | e }}" class="w-full h-full object-cover" loading="lazy">
+                        </button>
+                        {% else %}
                         <div class="w-10 h-10 rounded-xl {{ file.icon_classes }} flex items-center justify-center shrink-0">
                             <span class="text-[10px] font-bold mono">{{ file.type_label }}</span>
                         </div>
+                        {% endif %}
                         <div class="flex-1 min-w-0">
                             <p class="text-xs font-semibold text-gray-800 truncate">{{ file.filename }}</p>
                             <p class="text-[10px] text-gray-400">{{ file.size_human }}</p>
                         </div>
+                        {% if file.is_image %}
+                        <button type="button"
+                            onclick="openImagePreview('/api/files/{{ file.id }}/preview', '{{ file.filename | e }}')"
+                            class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-white rounded-lg shadow-sm text-gray-500 hover:text-gray-900"
+                            title="Просмотреть">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                        {% endif %}
                         <a href="/api/files/{{ file.id }}/download"
                             class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-white rounded-lg shadow-sm text-gray-500 hover:text-gray-900"
                             title="Скачать">
@@ -150,7 +166,36 @@
     </div>
 </div>
 
+<!-- Image preview lightbox -->
+<div id="image-lightbox" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] hidden items-center justify-center p-4"
+    onclick="if(event.target===this)closeImagePreview()">
+    <button onclick="closeImagePreview()" class="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+    <div class="max-w-5xl max-h-[90vh] flex flex-col items-center gap-3">
+        <img id="image-lightbox-img" src="" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain bg-white">
+        <p id="image-lightbox-name" class="text-white/80 text-sm font-medium"></p>
+    </div>
+</div>
+
 <script>
+function openImagePreview(url, name) {
+    const box = document.getElementById('image-lightbox');
+    document.getElementById('image-lightbox-img').src = url;
+    document.getElementById('image-lightbox-name').textContent = name || '';
+    box.classList.remove('hidden');
+    box.classList.add('flex');
+}
+function closeImagePreview() {
+    const box = document.getElementById('image-lightbox');
+    box.classList.add('hidden');
+    box.classList.remove('flex');
+    document.getElementById('image-lightbox-img').src = '';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeImagePreview();
+});
+
 async function sendMessage(e) {
     e.preventDefault();
     const input = document.getElementById('chat-input');

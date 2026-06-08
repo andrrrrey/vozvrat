@@ -269,7 +269,9 @@
                 </div>
 
                 <div id="files-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% with files = public_files, is_internal = False %}
                     {% include "refunds/_files_list.html" %}
+                    {% endwith %}
                 </div>
 
                 <!-- Upload zone -->
@@ -278,36 +280,76 @@
                     <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
                         <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                         <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
-                        <p class="text-[10px] text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG до {{ settings.MAX_UPLOAD_SIZE_MB if settings else 20 }} МБ</p>
-                        <input type="file" name="file" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png">
+                        <p class="text-[10px] text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG, WEBP до {{ settings.MAX_UPLOAD_SIZE_MB if settings else 20 }} МБ</p>
+                        <input type="file" name="file" data-internal="false" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
                     </label>
                 </div>
                 {% endif %}
             </div>
 
+            <!-- Internal Files (staff/admin only, not visible to clients) -->
+            {% if user.role.value in ('admin', 'staff') %}
+            <div class="bg-white rounded-2xl shadow-sm border border-amber-100 p-5">
+                <div class="flex items-center gap-2 mb-4">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <p class="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Внутренние файлы (только для сотрудников)</p>
+                </div>
+
+                <div id="internal-files-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% with files = internal_files, is_internal = True %}
+                    {% include "refunds/_files_list.html" %}
+                    {% endwith %}
+                </div>
+
+                <!-- Internal upload zone -->
+                <div class="mt-4">
+                    <label class="flex flex-col items-center justify-center border-2 border-dashed border-amber-200 rounded-2xl p-6 text-center cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-all">
+                        <svg class="w-8 h-8 text-amber-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <p class="text-xs text-amber-500 font-medium">Загрузить внутренний файл</p>
+                        <p class="text-[10px] text-amber-300 mt-1">Виден только сотрудникам · XLS, XLSX, PDF, JPG, PNG, WEBP</p>
+                        <input type="file" name="file" data-internal="true" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Staff Comments -->
             {% if user.role.value in ('admin', 'staff') %}
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Комментарии</p>
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Комментарии</p>
+                    <div class="relative">
+                        <svg class="w-3.5 h-3.5 text-gray-300 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <input id="comments-search" type="text" oninput="filterComments()" placeholder="Поиск по комментариям…"
+                            class="pl-8 pr-3 py-1.5 text-xs bg-gray-50 rounded-xl ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 w-44">
+                    </div>
+                </div>
 
-                <div id="comments-list" class="mb-3 max-h-64 overflow-y-auto"
+                <div id="comments-list" class="mb-3 h-72 overflow-y-auto border border-gray-100 rounded-xl p-2 bg-gray-50/40"
                     hx-get="/api/refunds/{{ refund.id }}/comments"
                     hx-trigger="load"
                     hx-swap="innerHTML">
                     <p class="text-xs text-gray-400 text-center py-4">Загрузка...</p>
                 </div>
+                <p id="comments-no-results" class="hidden text-xs text-gray-400 text-center py-2">Ничего не найдено</p>
 
                 <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
-                    <textarea id="comment-input" name="text" rows="2"
-                        placeholder="Добавить комментарий..."
-                        class="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
-                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('comment-form').dispatchEvent(new Event('submit'));}"></textarea>
+                    <div class="flex-1 relative">
+                        <textarea id="comment-input" name="text" rows="2"
+                            placeholder="Добавить комментарий... (введите @ чтобы упомянуть сотрудника)"
+                            autocomplete="off"
+                            class="w-full bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                            oninput="onCommentInput(event)"
+                            onkeydown="onCommentKeydown(event)"></textarea>
+                        <div id="mention-dropdown" class="hidden absolute z-30 bottom-full mb-1 left-0 w-64 max-h-48 overflow-y-auto bg-white rounded-xl shadow-lg border border-gray-100"></div>
+                    </div>
                     <button type="submit"
                         class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
                         Добавить
                     </button>
                 </form>
+                <p id="mention-hint" class="hidden text-[10px] text-indigo-500 mt-1.5"></p>
             </div>
 
             <!-- Notes -->
@@ -330,16 +372,22 @@
 
         <!-- Right: Chat (4 cols) -->
         <div class="lg:col-span-4">
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col" style="min-height: 480px;">
-                <div class="flex items-center gap-2 mb-4">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col" style="height: 600px;">
+                <div class="flex items-center gap-2 mb-3">
                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex-1">Чат с клиентом</p>
                     <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 </div>
 
+                <!-- Search -->
+                <div class="relative mb-3">
+                    <svg class="w-3.5 h-3.5 text-gray-300 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input id="chat-search" type="text" oninput="filterChat()" placeholder="Поиск по сообщениям…"
+                        class="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 rounded-xl ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20">
+                </div>
+
                 <!-- Messages area -->
                 <div id="chat-messages"
-                    class="flex-1 overflow-y-auto space-y-1 mb-4 pr-1"
-                    style="max-height: 400px;"
+                    class="flex-1 overflow-y-auto space-y-1 mb-3 pr-1"
                     hx-get="/api/refunds/{{ refund.id }}/messages"
                     hx-trigger="load, every 3s"
                     hx-swap="innerHTML">
@@ -347,6 +395,7 @@
                         <p class="text-xs text-gray-400">Загрузка...</p>
                     </div>
                 </div>
+                <p id="chat-no-results" class="hidden text-xs text-gray-400 text-center py-2">Ничего не найдено</p>
 
                 <!-- Input area -->
                 <form id="chat-form" onsubmit="sendMessage(event)" class="space-y-2">
@@ -420,7 +469,36 @@
     </div>
 </div>
 
+<!-- Image preview lightbox -->
+<div id="image-lightbox" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] hidden items-center justify-center p-4"
+    onclick="if(event.target===this)closeImagePreview()">
+    <button onclick="closeImagePreview()" class="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+    <div class="max-w-5xl max-h-[90vh] flex flex-col items-center gap-3">
+        <img id="image-lightbox-img" src="" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain bg-white">
+        <p id="image-lightbox-name" class="text-white/80 text-sm font-medium"></p>
+    </div>
+</div>
+
 <script>
+function openImagePreview(url, name) {
+    const box = document.getElementById('image-lightbox');
+    document.getElementById('image-lightbox-img').src = url;
+    document.getElementById('image-lightbox-name').textContent = name || '';
+    box.classList.remove('hidden');
+    box.classList.add('flex');
+}
+function closeImagePreview() {
+    const box = document.getElementById('image-lightbox');
+    box.classList.add('hidden');
+    box.classList.remove('flex');
+    document.getElementById('image-lightbox-img').src = '';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeImagePreview();
+});
+
 function toggleReasonEdit() {
     const display = document.getElementById('reason-display');
     const form = document.getElementById('reason-edit-form');
@@ -556,6 +634,9 @@ function confirmDeleteRefund(refundId, displayId) {
 
 async function deleteFile(fileId) {
     if (!confirm('Удалить файл?')) return;
+    // Determine which section the file belongs to so we update the right list.
+    const row = document.getElementById('file-row-' + fileId);
+    const container = row ? row.closest('#internal-files-list, #files-list') : document.getElementById('files-list');
     try {
         const res = await fetch('/api/files/' + fileId, { method: 'DELETE' });
         if (!res.ok) {
@@ -564,7 +645,7 @@ async function deleteFile(fileId) {
             return;
         }
         const html = await res.text();
-        document.getElementById('files-list').innerHTML = html;
+        if (container) container.innerHTML = html;
         showToast('Файл удалён');
     } catch {
         showToast('Ошибка сети', 'error');
@@ -596,7 +677,7 @@ async function saveNotes() {
     }
 }
 
-const ALLOWED_EXTS_UPLOAD = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png']);
+const ALLOWED_EXTS_UPLOAD = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', '.webp']);
 const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
 
 // Handle file upload via HTMX with input file
@@ -606,9 +687,12 @@ document.addEventListener('change', function(e) {
         const file = input.files[0];
         if (!file) return;
 
+        const isInternal = input.dataset.internal === 'true';
+        const targetId = isInternal ? 'internal-files-list' : 'files-list';
+
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
         if (!ALLOWED_EXTS_UPLOAD.has(ext)) {
-            if (window.showToast) showToast('Недопустимый формат файла. Разрешены: XLS, XLSX, PDF, JPG, PNG', 'error');
+            if (window.showToast) showToast('Недопустимый формат файла. Разрешены: XLS, XLSX, PDF, JPG, PNG, WEBP', 'error');
             input.value = '';
             return;
         }
@@ -620,6 +704,7 @@ document.addEventListener('change', function(e) {
 
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('internal', isInternal ? 'true' : 'false');
 
         fetch('/api/files/upload/{{ refund.id }}', {
             method: 'POST',
@@ -627,7 +712,8 @@ document.addEventListener('change', function(e) {
         })
         .then(r => r.text())
         .then(html => {
-            document.getElementById('files-list').innerHTML = html;
+            const target = document.getElementById(targetId);
+            if (target) target.innerHTML = html;
             input.value = '';
             if (window.showToast) showToast('Файл загружен успешно');
         })
@@ -684,12 +770,128 @@ document.body.addEventListener('htmx:afterSettle', function(evt) {
     if (evt.detail && evt.detail.target && evt.detail.target.id === 'comments-list') {
         const el = evt.detail.target;
         el.scrollTop = el.scrollHeight;
+        filterComments();
     }
     if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
         const el = evt.detail.target;
         if (el._wasAtBottom !== false) scrollChatToBottom();
+        filterChat();
     }
 });
+
+// ---- Search/filter for comments and chat ----
+function filterComments() {
+    const input = document.getElementById('comments-search');
+    if (!input) return;
+    const q = input.value.toLowerCase().trim();
+    const items = document.querySelectorAll('#comments-list .comment-item');
+    let visible = 0;
+    items.forEach(item => {
+        const match = !q || (item.dataset.search || '').includes(q);
+        item.classList.toggle('hidden', !match);
+        if (match) visible++;
+    });
+    const noRes = document.getElementById('comments-no-results');
+    if (noRes) noRes.classList.toggle('hidden', !(q && items.length && visible === 0));
+}
+
+function filterChat() {
+    const input = document.getElementById('chat-search');
+    if (!input) return;
+    const q = input.value.toLowerCase().trim();
+    const items = document.querySelectorAll('#chat-messages .chat-item');
+    let visible = 0;
+    items.forEach(item => {
+        const match = !q || (item.dataset.search || '').includes(q);
+        item.classList.toggle('hidden', !match);
+        if (match) visible++;
+    });
+    const noRes = document.getElementById('chat-no-results');
+    if (noRes) noRes.classList.toggle('hidden', !(q && items.length && visible === 0));
+}
+
+// ---- @mentions in comments ----
+const STAFF_USERS = [
+    {% for s in staff_users %}{ id: {{ s.id }}, name: {{ s.full_name | tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+let mentionedIds = new Set();
+let mentionStart = -1; // index of '@' currently being completed
+
+function renderMentionHint() {
+    const hint = document.getElementById('mention-hint');
+    if (!hint) return;
+    if (mentionedIds.size === 0) { hint.classList.add('hidden'); hint.textContent = ''; return; }
+    const names = STAFF_USERS.filter(u => mentionedIds.has(u.id)).map(u => u.name);
+    hint.textContent = 'Уведомление получат: ' + names.join(', ');
+    hint.classList.remove('hidden');
+}
+
+function closeMentionDropdown() {
+    const dd = document.getElementById('mention-dropdown');
+    if (dd) { dd.classList.add('hidden'); dd.innerHTML = ''; }
+    mentionStart = -1;
+}
+
+function onCommentInput(e) {
+    const input = e.target;
+    const pos = input.selectionStart;
+    const textBefore = input.value.slice(0, pos);
+    const at = textBefore.lastIndexOf('@');
+    // Recompute which mentioned users are still present in the text.
+    const lowered = input.value.toLowerCase();
+    STAFF_USERS.forEach(u => {
+        if (mentionedIds.has(u.id) && !lowered.includes('@' + u.name.toLowerCase())) {
+            mentionedIds.delete(u.id);
+        }
+    });
+    renderMentionHint();
+
+    if (at === -1) { closeMentionDropdown(); return; }
+    const query = textBefore.slice(at + 1);
+    // Stop offering the dropdown if there's a newline between '@' and cursor.
+    if (/\n/.test(query)) { closeMentionDropdown(); return; }
+    mentionStart = at;
+    const q = query.toLowerCase();
+    const matches = STAFF_USERS.filter(u => u.name.toLowerCase().includes(q)).slice(0, 8);
+    const dd = document.getElementById('mention-dropdown');
+    if (!matches.length) { closeMentionDropdown(); return; }
+    dd.innerHTML = matches.map(u =>
+        `<button type="button" onmousedown="event.preventDefault()" onclick="selectMention(${u.id})"
+            class="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-600">${(u.name[0]||'?').toUpperCase()}</span>
+            ${u.name.replace(/</g,'&lt;')}
+        </button>`).join('');
+    dd.classList.remove('hidden');
+}
+
+function onCommentKeydown(e) {
+    const dd = document.getElementById('mention-dropdown');
+    const open = dd && !dd.classList.contains('hidden');
+    if (e.key === 'Escape' && open) { e.preventDefault(); closeMentionDropdown(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+        if (open) { return; } // let user keep typing; don't submit while picking
+        e.preventDefault();
+        document.getElementById('comment-form').dispatchEvent(new Event('submit'));
+    }
+}
+
+function selectMention(userId) {
+    const u = STAFF_USERS.find(x => x.id === userId);
+    if (!u) return;
+    const input = document.getElementById('comment-input');
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, mentionStart);
+    const after = input.value.slice(pos);
+    const insert = '@' + u.name + ' ';
+    input.value = before + insert + after;
+    const newPos = (before + insert).length;
+    input.setSelectionRange(newPos, newPos);
+    mentionedIds.add(u.id);
+    closeMentionDropdown();
+    renderMentionHint();
+    input.focus();
+}
 
 // Staff comments
 async function sendComment(e) {
@@ -700,6 +902,9 @@ async function sendComment(e) {
 
     const data = new FormData();
     data.set('text', text);
+    if (mentionedIds.size > 0) {
+        data.set('mentions', Array.from(mentionedIds).join(','));
+    }
 
     try {
         const res = await fetch('/api/refunds/{{ refund.id }}/comments', {
@@ -715,7 +920,11 @@ async function sendComment(e) {
         const commentsList = document.getElementById('comments-list');
         commentsList.innerHTML = html;
         commentsList.scrollTop = commentsList.scrollHeight;
+        filterComments();
         input.value = '';
+        mentionedIds.clear();
+        closeMentionDropdown();
+        renderMentionHint();
     } catch {
         showToast('Ошибка сети', 'error');
     }

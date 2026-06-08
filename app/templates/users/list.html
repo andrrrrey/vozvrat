@@ -214,6 +214,39 @@ document.getElementById('user-modal').addEventListener('click', function(e) {
     if (e.target === this) closeUserModal();
 });
 
+// Keep the first client ID always visible and collapse the rest behind a toggle.
+function normalizeClientIds(userId) {
+    const list = document.getElementById('client-ids-list-' + userId);
+    if (!list) return;
+    const btn = document.getElementById('cid-toggle-' + userId);
+    const rows = Array.from(list.querySelectorAll('.cid-row'));
+    const expanded = list.dataset.expanded === 'true';
+    rows.forEach((row, i) => {
+        if (i === 0) {
+            row.classList.remove('cid-extra', 'hidden');
+        } else {
+            row.classList.add('cid-extra');
+            row.classList.toggle('hidden', !expanded);
+        }
+    });
+    const extraCount = Math.max(0, rows.length - 1);
+    if (btn) {
+        if (extraCount === 0) {
+            btn.classList.add('hidden');
+        } else {
+            btn.classList.remove('hidden');
+            btn.textContent = expanded ? 'Скрыть' : `Показать ещё (${extraCount})`;
+        }
+    }
+}
+
+function toggleClientIds(userId) {
+    const list = document.getElementById('client-ids-list-' + userId);
+    if (!list) return;
+    list.dataset.expanded = (list.dataset.expanded === 'true') ? 'false' : 'true';
+    normalizeClientIds(userId);
+}
+
 async function addClientId(e, userId) {
     e.preventDefault();
     const input = document.getElementById('new-client-id-' + userId);
@@ -234,13 +267,14 @@ async function addClientId(e, userId) {
     const list = document.getElementById('client-ids-list-' + userId);
     const row = document.createElement('div');
     row.id = 'cid-row-' + data.id;
-    row.className = 'flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2';
+    row.className = 'cid-row flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2';
     row.innerHTML = `<span class="text-sm font-mono text-gray-700">${data.client_id}</span>
         <button type="button" onclick="deleteClientId(${userId}, ${data.id})"
             class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors rounded-full hover:bg-red-50">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>`;
     list.appendChild(row);
+    normalizeClientIds(userId);
     showToast('ID добавлен');
 }
 
@@ -253,8 +287,13 @@ async function deleteClientId(userId, cidId) {
     const row = document.getElementById('cid-row-' + cidId);
     if (row) row.remove();
     const list = document.getElementById('client-ids-list-' + userId);
-    if (list && list.children.length === 0) {
+    if (list && list.querySelectorAll('.cid-row').length === 0) {
+        list.dataset.expanded = 'false';
         list.innerHTML = '<p id="no-cids-msg-' + userId + '" class="text-xs text-gray-400">Нет привязанных ID</p>';
+        const btn = document.getElementById('cid-toggle-' + userId);
+        if (btn) btn.classList.add('hidden');
+    } else {
+        normalizeClientIds(userId);
     }
     showToast('ID удалён');
 }

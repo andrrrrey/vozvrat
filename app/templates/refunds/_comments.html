@@ -1,7 +1,8 @@
 {% if comments %}
 <div class="space-y-2">
     {% for comment in comments %}
-    <div class="flex flex-col {% if comment.user_id == user.id %}items-end{% else %}items-start{% endif %}">
+    <div class="comment-item flex flex-col {% if comment.user_id == user.id %}items-end{% else %}items-start{% endif %}"
+        data-search="{{ (comment.text ~ ' ' ~ comment.user.full_name) | lower | e }}">
         <div class="{% if comment.user_id == user.id %}bg-amber-50 text-gray-800{% else %}bg-gray-100 text-gray-800{% endif %} rounded-xl px-3 py-2 max-w-[95%]">
             <p class="text-xs leading-relaxed whitespace-pre-wrap break-words">{{ comment.text }}</p>
         </div>

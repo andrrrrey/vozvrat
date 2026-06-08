@@ -641,7 +641,7 @@ async def send_supplier_email_endpoint(
         os.path.join(cfg.UPLOAD_DIR, f.stored_path) if not os.path.isabs(f.stored_path)
         else f.stored_path
         for f in refund.files
-        if f.file_type.value == "photo"
+        if f.file_type.value == "photo" and not f.is_internal
     ]
 
     from app.services.email_service import send_supplier_email
