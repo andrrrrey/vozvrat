@@ -1,12 +1,30 @@
-{% for file in refund.files %}
+{% for file in files %}
 <div class="bg-gray-50 rounded-2xl p-3 flex items-center gap-3 group" id="file-row-{{ file.id }}">
+    {% if file.is_image %}
+    <button type="button"
+        onclick="openImagePreview('/api/files/{{ file.id }}/preview', '{{ file.filename | e }}')"
+        class="w-10 h-10 rounded-xl overflow-hidden shrink-0 ring-1 ring-gray-200 hover:ring-gray-400 transition"
+        title="Просмотреть">
+        <img src="/api/files/{{ file.id }}/preview" alt="{{ file.filename | e }}"
+            class="w-full h-full object-cover" loading="lazy">
+    </button>
+    {% else %}
     <div class="w-10 h-10 rounded-xl {{ file.icon_classes }} flex items-center justify-center shrink-0">
         <span class="text-[10px] font-bold mono">{{ file.type_label }}</span>
     </div>
+    {% endif %}
     <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-gray-800 truncate">{{ file.filename }}</p>
         <p class="text-[10px] text-gray-400">{{ file.size_human }}</p>
     </div>
+    {% if file.is_image %}
+    <button type="button"
+        onclick="openImagePreview('/api/files/{{ file.id }}/preview', '{{ file.filename | e }}')"
+        class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-white rounded-lg shadow-sm text-gray-500 hover:text-gray-900"
+        title="Просмотреть">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+    </button>
+    {% endif %}
     <a href="/api/files/{{ file.id }}/download"
         class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-white rounded-lg shadow-sm text-gray-500 hover:text-gray-900"
         title="Скачать">
@@ -21,5 +39,5 @@
     {% endif %}
 </div>
 {% else %}
-<p class="text-xs text-gray-400 text-center py-4">Файлы не прикреплены</p>
+<p class="text-xs text-gray-400 text-center py-4 col-span-full">{% if is_internal %}Внутренних файлов нет{% else %}Файлы не прикреплены{% endif %}</p>
 {% endfor %}

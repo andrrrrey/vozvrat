@@ -13,18 +13,37 @@ from app.models.refund import Refund
 logger = logging.getLogger(__name__)
 
 
-ALLOWED_EXTENSIONS = {".xls", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXTENSIONS = {".xls", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png", ".webp"}
+
+# Map image extensions to their MIME types for inline browser preview.
+IMAGE_MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 
 def detect_file_type(filename: str) -> FileType:
     ext = Path(filename).suffix.lower()
     if ext in (".xls", ".xlsx"):
         return FileType.xls
-    elif ext in (".jpg", ".jpeg", ".png"):
+    elif ext in (".jpg", ".jpeg", ".png", ".webp"):
         return FileType.photo
     elif ext == ".pdf":
         return FileType.pdf_ukd
     return FileType.other
+
+
+def guess_media_type(filename: str) -> str:
+    """Return a MIME type suitable for inline preview of the given file."""
+    ext = Path(filename).suffix.lower()
+    if ext in IMAGE_MIME_TYPES:
+        return IMAGE_MIME_TYPES[ext]
+    if ext == ".pdf":
+        return "application/pdf"
+    return "application/octet-stream"
 
 
 async def save_file(
@@ -32,6 +51,7 @@ async def save_file(
     refund_id: int,
     db: AsyncSession,
     uploaded_by_id: Optional[int] = None,
+    is_internal: bool = False,
 ) -> FileAttachment:
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -67,6 +87,7 @@ async def save_file(
         file_type=file_type,
         file_size=file_size,
         uploaded_by_id=uploaded_by_id,
+        is_internal=is_internal,
     )
     db.add(attachment)
     await db.flush()
@@ -93,6 +114,12 @@ async def get_file_for_download(
         )
 
     if user_role == "client":
+        # Internal files are never accessible to clients.
+        if attachment.is_internal:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Нет доступа к этому файлу",
+            )
         refund_result = await db.execute(
             select(Refund).where(
                 Refund.id == attachment.refund_id,

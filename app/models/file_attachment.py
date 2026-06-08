@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, Enum, ForeignKey, func
+from sqlalchemy import String, Integer, Boolean, Enum, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -32,6 +32,8 @@ class FileAttachment(Base):
         Enum(FileType), nullable=False, default=FileType.other
     )
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    # Internal files are visible only to staff/admin, never to clients or suppliers.
+    is_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
     uploaded_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
@@ -46,6 +48,11 @@ class FileAttachment(Base):
     @property
     def type_label(self) -> str:
         return FILE_TYPE_ICONS.get(self.file_type, FILE_TYPE_ICONS[FileType.other])[1]
+
+    @property
+    def is_image(self) -> bool:
+        """Whether the file can be previewed inline in the browser as an image."""
+        return self.file_type == FileType.photo
 
     @property
     def size_human(self) -> str:

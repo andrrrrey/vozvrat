@@ -248,6 +248,19 @@ async def refund_detail_page(
     )
     suppliers = suppliers_result.scalars().all()
 
+    # Staff members available for @mentions in comments
+    staff_result = await db.execute(
+        select(UserModel).where(
+            UserModel.role.in_([UserRole.admin, UserRole.staff]),
+            UserModel.is_active == True,
+        ).order_by(UserModel.full_name)
+    )
+    staff_users = staff_result.scalars().all()
+
+    # Split attachments into public (client-visible) and internal (staff-only)
+    public_files = sorted([f for f in refund.files if not f.is_internal], key=lambda f: f.id)
+    internal_files = sorted([f for f in refund.files if f.is_internal], key=lambda f: f.id)
+
     return templates.TemplateResponse("refunds/card.html", {
         "request": request,
         "user": user,
@@ -258,6 +271,9 @@ async def refund_detail_page(
         "auto_invite_enabled": auto_invite,
         "client_email_for_invite": client_email_for_invite,
         "client_user_ext_ids": client_user_ext_ids,
+        "public_files": public_files,
+        "internal_files": internal_files,
+        "staff_users": staff_users,
     })
 
 
@@ -473,11 +489,14 @@ async def client_refund_detail(
 
     await mark_refund_read(refund_id, user.id, db)
 
-    ukd_file = next((f for f in refund.files if f.file_type.value == "pdf_ukd"), None)
+    # Clients never see internal (staff-only) files.
+    client_files = [f for f in refund.files if not f.is_internal]
+    ukd_file = next((f for f in client_files if f.file_type.value == "pdf_ukd"), None)
 
     return templates.TemplateResponse("client/card.html", {
         "request": request,
         "user": user,
         "refund": refund,
+        "client_files": client_files,
         "ukd_file": ukd_file,
     })

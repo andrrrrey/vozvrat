@@ -75,10 +75,17 @@
     {% if target_user %}
     <!-- Client IDs section -->
     <div class="mt-6 pt-5 border-t border-gray-100">
-        <p class="text-[11px] font-bold text-gray-400 uppercase mb-3">ID клиента</p>
-        <div id="client-ids-list-{{ target_user.id }}" class="space-y-1 mb-3">
+        <div class="flex items-center justify-between mb-3">
+            <p class="text-[11px] font-bold text-gray-400 uppercase">ID клиента</p>
+            <button type="button" id="cid-toggle-{{ target_user.id }}"
+                onclick="toggleClientIds({{ target_user.id }})"
+                class="text-[11px] font-semibold text-blue-500 hover:text-blue-700 {% if client_ids | length <= 1 %}hidden{% endif %}">
+                Показать ещё ({{ client_ids | length - 1 if client_ids | length > 1 else 0 }})
+            </button>
+        </div>
+        <div id="client-ids-list-{{ target_user.id }}" class="space-y-1 mb-3" data-expanded="false">
             {% for cid in client_ids %}
-            <div id="cid-row-{{ cid.id }}" class="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
+            <div id="cid-row-{{ cid.id }}" class="cid-row flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 {% if not loop.first %}cid-extra hidden{% endif %}">
                 <span class="text-sm font-mono text-gray-700">{{ cid.client_id }}</span>
                 <button type="button"
                     onclick="deleteClientId({{ target_user.id }}, {{ cid.id }})"

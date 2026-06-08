@@ -88,9 +88,9 @@
                         <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-[28px] p-8 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
                             <svg class="w-10 h-10 text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                             <p class="text-sm text-gray-400 font-medium">Перетащите файлы или нажмите для выбора</p>
-                            <p class="text-xs text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG</p>
+                            <p class="text-xs text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG, WEBP</p>
                             <div id="file-names" class="mt-2 text-xs text-gray-500 font-medium"></div>
-                            <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png" onchange="showFileNames(this)">
+                            <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" onchange="showFileNames(this)">
                         </label>
                     </div>
                 </div>
@@ -110,7 +110,7 @@
 </div>
 
 <script>
-const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png']);
+const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', '.webp']);
 const MAX_SIZE = 20 * 1024 * 1024;
 
 function showFileNames(input) {

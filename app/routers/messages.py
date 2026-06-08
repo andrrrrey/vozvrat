@@ -171,8 +171,68 @@ async def post_comment(
     await db.commit()
     await mark_refund_read(refund_id, user.id, db)
 
+    # Handle @mentions: notify mentioned staff members by email (best-effort).
+    mentions_raw = str(form.get("mentions", "")).strip()
+    if mentions_raw:
+        await _notify_mentioned_staff(mentions_raw, refund_id, user, text, request, db)
+
     comments = await _load_comments(refund_id, db)
     return templates.TemplateResponse(
         "refunds/_comments.html",
         {"request": request, "comments": comments, "user": user},
     )
+
+
+async def _notify_mentioned_staff(
+    mentions_raw: str,
+    refund_id: int,
+    author,
+    comment_text: str,
+    request: Request,
+    db: AsyncSession,
+) -> None:
+    """Send email notifications to mentioned staff/admin users. Never raises."""
+    from app.models.user import User, UserRole
+    from app.services.email_service import send_comment_mention_email
+
+    mention_ids = []
+    for part in mentions_raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            mention_ids.append(int(part))
+    # Don't notify the author about their own mention.
+    mention_ids = [mid for mid in set(mention_ids) if mid != author.id]
+    if not mention_ids:
+        return
+
+    refund_result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = refund_result.scalar_one_or_none()
+    display_id = refund.display_id if refund else f"#{refund_id}"
+
+    users_result = await db.execute(
+        select(User).where(
+            User.id.in_(mention_ids),
+            User.role.in_([UserRole.admin, UserRole.staff]),
+            User.is_active == True,
+        )
+    )
+    recipients = users_result.scalars().all()
+
+    base_url = str(request.base_url).rstrip("/") if request else ""
+
+    for recipient in recipients:
+        if not recipient.email:
+            continue
+        try:
+            await send_comment_mention_email(
+                db=db,
+                to_email=recipient.email,
+                recipient_name=recipient.full_name,
+                author_name=author.full_name,
+                refund_display_id=display_id,
+                refund_id=refund_id,
+                comment_text=comment_text,
+                base_url=base_url,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send mention email to {recipient.email}: {e}")
