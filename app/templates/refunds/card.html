@@ -178,10 +178,18 @@
                     {% if client_user_ext_ids %}
                     <div class="flex items-start justify-between text-xs mb-2">
                         <span class="text-gray-400 shrink-0">ID клиента</span>
-                        <div class="flex flex-wrap gap-1 justify-end ml-2">
-                            {% for ext_id in client_user_ext_ids %}
-                            <span class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg font-mono text-[11px]">{{ ext_id }}</span>
-                            {% endfor %}
+                        <div class="ml-2 flex flex-col items-end gap-1">
+                            <div id="card-cids" class="flex flex-wrap gap-1 justify-end" data-expanded="false">
+                                {% for ext_id in client_user_ext_ids %}
+                                <span class="card-cid px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg font-mono text-[11px] {% if not loop.last %}card-cid-extra hidden{% endif %}">{{ ext_id }}</span>
+                                {% endfor %}
+                            </div>
+                            {% if client_user_ext_ids | length > 1 %}
+                            <button type="button" id="card-cids-toggle" onclick="toggleCardClientIds()"
+                                class="text-[10px] font-semibold text-blue-500 hover:text-blue-700">
+                                Показать ещё ({{ client_user_ext_ids | length - 1 }})
+                            </button>
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
@@ -498,6 +506,18 @@ function closeImagePreview() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeImagePreview();
 });
+
+// Collapse client IDs in the card: show only the last one, reveal the rest on demand.
+function toggleCardClientIds() {
+    const wrap = document.getElementById('card-cids');
+    const btn = document.getElementById('card-cids-toggle');
+    if (!wrap) return;
+    const extras = wrap.querySelectorAll('.card-cid-extra');
+    const expanded = wrap.dataset.expanded === 'true';
+    extras.forEach(el => el.classList.toggle('hidden', expanded));
+    wrap.dataset.expanded = expanded ? 'false' : 'true';
+    if (btn) btn.textContent = expanded ? `Показать ещё (${extras.length})` : 'Скрыть';
+}
 
 function toggleReasonEdit() {
     const display = document.getElementById('reason-display');
