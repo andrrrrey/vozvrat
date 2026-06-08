@@ -25,6 +25,18 @@ IMAGE_MIME_TYPES = {
 }
 
 
+def build_stored_name(filename: Optional[str]) -> str:
+    """Build an ASCII-safe on-disk filename: random uuid + lowercased extension only.
+
+    The original (possibly non-ASCII / Cyrillic) name is preserved separately in
+    FileAttachment.filename. Embedding the raw name in the filesystem path can raise on
+    open() under a non-UTF-8 locale (e.g. a systemd unit with no LANG set), so we never
+    put it on disk.
+    """
+    ext = Path(filename or "").suffix.lower()
+    return f"{uuid.uuid4().hex}{ext}"
+
+
 def detect_file_type(filename: str) -> FileType:
     ext = Path(filename).suffix.lower()
     if ext in (".xls", ".xlsx"):
@@ -72,7 +84,7 @@ async def save_file(
     refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund_id}"
     refund_dir.mkdir(parents=True, exist_ok=True)
 
-    unique_name = f"{uuid.uuid4().hex}_{file.filename}"
+    unique_name = build_stored_name(file.filename)
     stored_path = str(refund_dir / unique_name)
 
     with open(stored_path, "wb") as f:

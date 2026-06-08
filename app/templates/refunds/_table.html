@@ -1,0 +1,65 @@
+<table class="w-full">
+    <thead>
+        <tr class="bg-gray-50/50 border-b border-gray-100">
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">ID / Дата</th>
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Клиент / Поставщик</th>
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Артикул детали</th>
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Сумма</th>
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Статус</th>
+            <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider"></th>
+        </tr>
+    </thead>
+    <tbody id="refunds-tbody">
+        {% include "refunds/_table_rows.html" %}
+    </tbody>
+</table>
+
+{% if total_pages and total_pages > 1 %}
+{% set hx_filters = "[name='status'],[name='supplier_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']" %}
+{% set win_start = [1, page - 2] | max %}
+{% set win_end = [total_pages, page + 2] | min %}
+<div class="flex items-center justify-between gap-4 px-6 py-4 border-t border-gray-100 flex-wrap">
+    <p class="text-xs text-gray-400">
+        Стр. {{ page }} из {{ total_pages }} · всего {{ total }}
+    </p>
+    <div class="flex items-center gap-1">
+        <button {% if page <= 1 %}disabled{% endif %}
+            hx-get="/api/refunds/table?page={{ page - 1 }}"
+            hx-include="{{ hx_filters }}"
+            hx-target="#refunds-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+            Назад
+        </button>
+
+        {% if win_start > 1 %}
+        <button hx-get="/api/refunds/table?page=1" hx-include="{{ hx_filters }}"
+            hx-target="#refunds-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+            class="min-w-[34px] px-2 py-1.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">1</button>
+        {% if win_start > 2 %}<span class="px-1 text-gray-300">…</span>{% endif %}
+        {% endif %}
+
+        {% for p in range(win_start, win_end + 1) %}
+        <button hx-get="/api/refunds/table?page={{ p }}" hx-include="{{ hx_filters }}"
+            hx-target="#refunds-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+            class="min-w-[34px] px-2 py-1.5 rounded-lg text-sm font-semibold border {% if p == page %}bg-gray-900 text-white border-gray-900{% else %}border-gray-200 text-gray-600 hover:bg-gray-50{% endif %}">
+            {{ p }}
+        </button>
+        {% endfor %}
+
+        {% if win_end < total_pages %}
+        {% if win_end < total_pages - 1 %}<span class="px-1 text-gray-300">…</span>{% endif %}
+        <button hx-get="/api/refunds/table?page={{ total_pages }}" hx-include="{{ hx_filters }}"
+            hx-target="#refunds-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+            class="min-w-[34px] px-2 py-1.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">{{ total_pages }}</button>
+        {% endif %}
+
+        <button {% if page >= total_pages %}disabled{% endif %}
+            hx-get="/api/refunds/table?page={{ page + 1 }}"
+            hx-include="{{ hx_filters }}"
+            hx-target="#refunds-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+            class="px-3 py-1.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+            Вперёд
+        </button>
+    </div>
+</div>
+{% endif %}

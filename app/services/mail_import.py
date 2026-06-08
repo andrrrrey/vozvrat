@@ -22,7 +22,7 @@ from app.models.mail_notification import MailNotification
 from app.models.user import User, UserRole
 from app.models.user_client_id import UserClientId
 from app.models.supplier import Supplier
-from app.services.file_service import detect_file_type
+from app.services.file_service import detect_file_type, build_stored_name
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +61,21 @@ def try_parse_xls(content: bytes) -> list[dict]:
         import openpyxl
         from openpyxl.descriptors import base as _desc_base
 
-        _orig_set = _desc_base.NoneSet.__set__
+        # Some xlsx files (e.g. amx24's goodsReturnReport) contain invalid 'pane'/'view'
+        # values like <selection pane=""> that openpyxl's NoneSet descriptor rejects.
+        # Patch NoneSet.__set__ ONCE (guarded) to coerce unknown values to None instead
+        # of raising. The guard keeps repeated calls from nesting wrappers.
+        if not getattr(_desc_base, "_noneset_patched", False):
+            _orig_set = _desc_base.NoneSet.__set__
 
-        def _lenient_set(self, instance, value):
-            try:
-                _orig_set(self, instance, value)
-            except ValueError:
-                object.__setattr__(instance, self.name, None)
+            def _lenient_set(self, instance, value):
+                try:
+                    _orig_set(self, instance, value)
+                except ValueError:
+                    object.__setattr__(instance, self.name, None)
 
-        _desc_base.NoneSet.__set__ = _lenient_set
+            _desc_base.NoneSet.__set__ = _lenient_set
+            _desc_base._noneset_patched = True
 
         wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
         ws = wb.active
@@ -198,7 +204,7 @@ def try_parse_xls(content: bytes) -> list[dict]:
             items.append(item)
         return items
     except Exception as e:
-        logger.debug(f"XLS parse failed: {e}")
+        logger.warning(f"XLS parse failed: {e}", exc_info=True)
         return []
 
 
@@ -717,13 +723,18 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             db.add(item)
             logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
 
-        # Save all attachments to disk
+        # Save all attachments to disk. A single unwritable file must never abort the
+        # whole refund, so each write is best-effort.
         for filename, content, _ctype in attachments_raw:
-            file_type = detect_file_type(filename)
-            unique_name = f"{uuid.uuid4().hex}_{filename}"
-            stored_path = str(refund_dir / unique_name)
-            with open(stored_path, "wb") as f:
-                f.write(content)
+            try:
+                file_type = detect_file_type(filename)
+                unique_name = build_stored_name(filename)
+                stored_path = str(refund_dir / unique_name)
+                with open(stored_path, "wb") as f:
+                    f.write(content)
+            except Exception as att_err:
+                logger.warning(f"Failed to save attachment '{filename}' for refund {refund.id}: {att_err}")
+                continue
             attachment = FileAttachment(
                 refund_id=refund.id,
                 filename=filename,
@@ -751,7 +762,13 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
         )
         await db.execute(_notif_insert)
 
-        conn.store(uid.encode(), "+FLAGS", "\\Seen")
+        # Mark seen via UID STORE (the connection was searched/fetched by UID; conn.store
+        # would treat `uid` as a sequence number and could raise). Best-effort: a failure
+        # here must never roll back the refund we just created.
+        try:
+            conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
+        except Exception as seen_err:
+            logger.warning(f"Failed to mark email UID={uid} as Seen: {seen_err}")
         logger.info(f"Created refund {display_id} (id={refund.id}) from email UID={uid}")
         return refund
     finally:
@@ -878,6 +895,9 @@ async def process_emails(db: AsyncSession) -> int:
     for uid, raw in raw_emails:
         try:
             accepted, _reason = await _process_raw_email(uid, raw, db, auto_since=auto_since)
+            # Commit each email independently so one bad email can never discard the
+            # refunds created from the others in this batch.
+            await db.commit()
             if accepted:
                 processed += 1
             else:
@@ -887,16 +907,45 @@ async def process_emails(db: AsyncSession) -> int:
         except Exception as e:
             failed += 1
             logger.error(f"Error processing email uid={uid}: {e}", exc_info=True)
-            # Record the failure in mail_notifications if the record already exists
+            # Roll back the aborted transaction before issuing any further statements,
+            # otherwise the session is poisoned (PendingRollbackError) for the rest of the batch.
             try:
+                await db.rollback()
+            except Exception:
+                pass
+            # Record the failure in its own transaction so it survives even if the
+            # original email left the session in a broken state. The rollback above also
+            # discarded the notification upsert from _process_raw_email, so upsert here
+            # (insert-or-update) to guarantee the "Ошибка" badge shows in the UI.
+            try:
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                fail_msg = str(e)[:500]
+                msg_fail = email.message_from_bytes(raw)
+                subject_fail = decode_str(msg_fail.get("Subject", "Без темы"))
+                from_header_fail = decode_str(msg_fail.get("From", ""))
+                from_email_fail = email.utils.parseaddr(from_header_fail)[1]
+                from_name_fail = email.utils.parseaddr(from_header_fail)[0] or from_email_fail
                 await db.execute(
-                    sa_update(MailNotification)
-                    .where(MailNotification.email_uid == uid)
-                    .values(processing_status="failed", skip_reason=str(e)[:500])
+                    pg_insert(MailNotification).values(
+                        email_uid=uid,
+                        subject=subject_fail[:500] if subject_fail else None,
+                        from_email=from_email_fail[:255] if from_email_fail else None,
+                        from_name=from_name_fail[:255] if from_name_fail else None,
+                        refund_id=None,
+                        is_read=False,
+                        processing_status="failed",
+                        skip_reason=fail_msg,
+                    ).on_conflict_do_update(
+                        index_elements=["email_uid"],
+                        set_={"processing_status": "failed", "skip_reason": fail_msg},
+                    )
                 )
                 await db.commit()
             except Exception:
-                pass
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
     if skipped:
         logger.info(f"Skipped {skipped} emails (did not pass filters)")
@@ -1090,13 +1139,18 @@ async def _process_raw_email(
         )
         db.add(item)
 
-    # Save all attachments to disk
+    # Save all attachments to disk. A single unwritable file must never abort the
+    # whole refund, so each write is best-effort.
     for filename, content, _ctype in attachments_raw:
-        file_type = detect_file_type(filename)
-        unique_name = f"{uuid.uuid4().hex}_{filename}"
-        stored_path = str(refund_dir / unique_name)
-        with open(stored_path, "wb") as f:
-            f.write(content)
+        try:
+            file_type = detect_file_type(filename)
+            unique_name = build_stored_name(filename)
+            stored_path = str(refund_dir / unique_name)
+            with open(stored_path, "wb") as f:
+                f.write(content)
+        except Exception as att_err:
+            logger.warning(f"Failed to save attachment '{filename}' for refund {refund.id}: {att_err}")
+            continue
         attachment = FileAttachment(
             refund_id=refund.id,
             filename=filename,

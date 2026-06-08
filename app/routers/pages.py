@@ -95,6 +95,7 @@ async def refunds_page(
     date: Optional[str] = None,
     article: Optional[str] = None,
     order_id: Optional[str] = None,
+    page: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_optional_user(request, db)
@@ -103,46 +104,27 @@ async def refunds_page(
     if user.role.value == "client":
         return RedirectResponse(url="/client/refunds", status_code=302)
 
-    from app.models.refund_item import RefundItem
+    from app.routers.refunds import build_refund_filter
+
+    per_page = 20
+    if page < 1:
+        page = 1
 
     query = select(Refund).options(
         selectinload(Refund.supplier),
         selectinload(Refund.items),
     ).order_by(Refund.created_at.desc())
 
-    conditions = []
-    if status:
-        try:
-            conditions.append(Refund.status == RefundStatus(status))
-        except ValueError:
-            pass
-    if supplier_id:
-        conditions.append(Refund.supplier_id == supplier_id)
-    if client_name:
-        conditions.append(Refund.client_name.ilike(f"%{client_name}%"))
-    if date:
-        from datetime import datetime as dt
-        try:
-            d = dt.strptime(date, "%Y-%m-%d").date()
-            conditions.append(func.date(Refund.created_at) == d)
-        except ValueError:
-            pass
-    if article:
-        conditions.append(
-            exists().where(
-                and_(
-                    RefundItem.refund_id == Refund.id,
-                    RefundItem.article.ilike(f"%{article}%"),
-                )
-            )
-        )
-    if order_id:
-        conditions.append(Refund.order_id.ilike(f"%{order_id}%"))
+    # Same filter logic as the /api/refunds/table partial, kept in sync via build_refund_filter.
+    query = build_refund_filter(query, status, supplier_id, client_name, date, article, order_id)
 
-    if conditions:
-        query = query.where(and_(*conditions))
+    count_q = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
 
-    query = query.limit(20)
+    query = query.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
     refunds = result.scalars().all()
 
@@ -164,6 +146,9 @@ async def refunds_page(
         "current_article": article or "",
         "current_order_id": order_id or "",
         "unread_counts": unread_counts,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
     })
 
 

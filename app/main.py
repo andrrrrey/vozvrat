@@ -46,7 +46,9 @@ async def mail_check_job():
     from app.services.mail_import import process_emails
     async with AsyncSessionLocal() as db:
         try:
-            # Timeout guards against a hung IMAP connection blocking the scheduler indefinitely
+            # Timeout guards against a hung IMAP connection blocking the scheduler indefinitely.
+            # process_emails commits each email independently; this commit is a safe no-op
+            # that flushes anything still pending.
             count = await asyncio.wait_for(process_emails(db), timeout=300)
             await db.commit()
             if count > 0:

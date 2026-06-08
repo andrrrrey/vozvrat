@@ -142,15 +142,20 @@ async def refunds_table_partial(
     date: Optional[str] = None,
     article: Optional[str] = None,
     order_id: Optional[str] = None,
+    page: int = 1,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return HTML partial (tbody) for HTMX table update."""
+    """Return HTML partial (table + pager) for HTMX table update."""
     from fastapi.templating import Jinja2Templates
     import os
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
     templates = Jinja2Templates(directory=templates_dir)
 
     user = await get_current_user(request, db)
+
+    per_page = 20
+    if page < 1:
+        page = 1
 
     supplier_id_int: Optional[int] = int(supplier_id) if supplier_id and supplier_id.strip().isdigit() else None
 
@@ -163,8 +168,14 @@ async def refunds_table_partial(
         query = query.where(Refund.client_user_id == user.id)
 
     query = build_refund_filter(query, status, supplier_id_int, client_name, date, article, order_id)
-    query = query.limit(20)
 
+    count_q = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    query = query.offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
     refunds = result.scalars().all()
 
@@ -172,8 +183,12 @@ async def refunds_table_partial(
     unread_counts = await get_unread_per_refund(user, db)
 
     return templates.TemplateResponse(
-        "refunds/_table_rows.html",
-        {"request": request, "refunds": refunds, "user": user, "unread_counts": unread_counts},
+        "refunds/_table.html",
+        {
+            "request": request, "refunds": refunds, "user": user,
+            "unread_counts": unread_counts,
+            "page": page, "total_pages": total_pages, "total": total,
+        },
     )
 
 
