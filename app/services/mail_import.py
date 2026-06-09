@@ -248,34 +248,17 @@ def _has_xls_attachment(msg: email.message.Message) -> bool:
 
 
 def _build_imap_search_criteria() -> str:
-    """Build IMAP SEARCH criteria using server-side subject filter when possible."""
-    keywords = []
-    if settings.MAIL_SUBJECT_KEYWORDS.strip():
-        keywords = [k.strip() for k in settings.MAIL_SUBJECT_KEYWORDS.split(",") if k.strip()]
+    """IMAP SEARCH criteria for the scheduler: always plain ``UNSEEN``.
 
-    if not keywords:
-        return "UNSEEN"
-
-    # IMAP SEARCH only supports ASCII; skip non-ASCII keywords for server-side filtering
-    ascii_keywords = []
-    for kw in keywords:
-        try:
-            kw.encode("ascii")
-            ascii_keywords.append(kw)
-        except UnicodeEncodeError:
-            pass
-
-    if not ascii_keywords:
-        return "UNSEEN"
-
-    if len(ascii_keywords) == 1:
-        return f'UNSEEN SUBJECT "{ascii_keywords[0]}"'
-
-    # Build nested OR: (OR SUBJECT "k1" (OR SUBJECT "k2" SUBJECT "k3"))
-    chain = f'SUBJECT "{ascii_keywords[-1]}"'
-    for kw in reversed(ascii_keywords[:-1]):
-        chain = f'(OR SUBJECT "{kw}" {chain})'
-    return f"UNSEEN {chain}"
+    Subject filtering is done CLIENT-side in ``_has_subject_keyword`` (which is
+    Cyrillic-aware). We deliberately do NOT push SUBJECT terms into the IMAP SEARCH:
+    IMAP SUBJECT search is reliable only for ASCII, so a mixed list like
+    "возврат,refund" would drop the Cyrillic term and search only "refund" —
+    returning 0 matches for Russian-subject mail even though those emails are unread.
+    That exact footgun silently disabled auto-import. Plain UNSEEN keeps the server
+    query correct; MAIL_FETCH_LIMIT caps how many we pull per cycle.
+    """
+    return "UNSEEN"
 
 
 def get_email_body_text(msg: email.message.Message) -> str:
