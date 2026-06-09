@@ -25,6 +25,8 @@ SETTING_KEYS = {
     # Auto-create refunds from emails
     "mail_auto_create_enabled": "false",
     "mail_auto_create_since": "",
+    # Heartbeat: ISO timestamp of the last scheduler mail-check tick (proves it's alive)
+    "mail_last_check_at": "",
     # Auto-invite client on assign
     "auto_create_client_on_assign": "false",
 }
@@ -54,6 +56,30 @@ async def get_all_settings(db: AsyncSession) -> dict[str, str]:
     merged = dict(SETTING_KEYS)
     merged.update(rows)
     return merged
+
+
+async def get_scheduler_status(db: AsyncSession) -> dict:
+    """Return mail-import scheduler health based on the last heartbeat.
+
+    The scheduler writes ``mail_last_check_at`` every tick. If that timestamp is
+    missing or older than two check intervals (plus a small buffer), we treat the
+    scheduler as not running — the most likely reason a fresh email never got a
+    MailNotification at all.
+    """
+    from datetime import datetime, timezone, timedelta
+    from app.config import settings as cfg
+
+    last_str = await get_setting(db, "mail_last_check_at")
+    last_dt = None
+    alive = False
+    if last_str:
+        try:
+            last_dt = datetime.fromisoformat(last_str)
+            threshold = timedelta(minutes=cfg.MAIL_CHECK_INTERVAL_MINUTES * 2 + 2)
+            alive = (datetime.now(timezone.utc) - last_dt) <= threshold
+        except ValueError:
+            pass
+    return {"alive": alive, "last_check": last_dt}
 
 
 async def save_settings(db: AsyncSession, data: dict[str, str]) -> None:

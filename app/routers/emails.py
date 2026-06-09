@@ -112,10 +112,14 @@ async def load_more_emails(
             for r in notif_result.all()
         }
 
+    from app.services.settings_service import get_scheduler_status
+    sched = await get_scheduler_status(db)
+
     return templates.TemplateResponse("emails/_email_cards.html", {
         "request": request,
         "emails": emails,
         "refund_uids": refund_uids,
         "email_notifs": email_notifs,
+        "scheduler_alive": sched["alive"],
         "index_offset": offset,
     })

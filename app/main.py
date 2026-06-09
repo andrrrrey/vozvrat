@@ -43,8 +43,17 @@ def _try_acquire_scheduler_lock() -> bool:
 async def mail_check_job():
     """Scheduled job to check and import emails."""
     import asyncio
+    from datetime import datetime, timezone
     from app.services.mail_import import process_emails
+    from app.services.settings_service import set_setting
     async with AsyncSessionLocal() as db:
+        # Heartbeat: record that this tick fired, regardless of the import outcome.
+        # The emails page uses this to tell "scheduler is dead" from "email was already read".
+        try:
+            await set_setting(db, "mail_last_check_at", datetime.now(timezone.utc).isoformat())
+            await db.commit()
+        except Exception:
+            await db.rollback()
         try:
             # Timeout guards against a hung IMAP connection blocking the scheduler indefinitely.
             # process_emails commits each email independently; this commit is a safe no-op
@@ -80,6 +89,17 @@ async def lifespan(app: FastAPI):
         )
         scheduler.start()
         logger.info(f"Mail check scheduler started (pid={os.getpid()}, every {settings.MAIL_CHECK_INTERVAL_MINUTES} min)")
+        # Seed the heartbeat immediately so the emails page doesn't falsely report
+        # "scheduler down" during the first interval window after a restart (the
+        # IntervalTrigger only fires its first tick after MAIL_CHECK_INTERVAL_MINUTES).
+        try:
+            from datetime import datetime, timezone
+            from app.services.settings_service import set_setting
+            async with AsyncSessionLocal() as db:
+                await set_setting(db, "mail_last_check_at", datetime.now(timezone.utc).isoformat())
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not seed scheduler heartbeat at startup: {e}")
     else:
         logger.info(f"Scheduler already running in another worker (pid={os.getpid()}), skipping")
 

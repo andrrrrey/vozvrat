@@ -340,6 +340,8 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     auto_create_enabled = False
     refund_uids = set()
     email_notifs: dict = {}
+    scheduler_alive = False
+    scheduler_last_check = None
 
     if imap_configured:
         try:
@@ -351,6 +353,11 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
             fetch_error = str(e)
 
         auto_create_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
+
+        from app.services.settings_service import get_scheduler_status
+        sched = await get_scheduler_status(db)
+        scheduler_alive = sched["alive"]
+        scheduler_last_check = sched["last_check"]
 
         # Get email UIDs that have linked refunds (both auto and manual)
         result = await db.execute(
@@ -387,6 +394,8 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         "auto_create_enabled": auto_create_enabled,
         "refund_uids": refund_uids,
         "email_notifs": email_notifs,
+        "scheduler_alive": scheduler_alive,
+        "scheduler_last_check": scheduler_last_check,
         "index_offset": 0,
     })
 
