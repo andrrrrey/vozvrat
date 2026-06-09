@@ -72,6 +72,14 @@ async def statistics_page(request: Request, db: AsyncSession = Depends(get_db)):
         )
     )).scalar() or 0
 
+    rejected_count = (await db.execute(
+        select(func.count(Refund.id)).where(Refund.status == RefundStatus.rejected)
+    )).scalar() or 0
+
+    waiting_count = (await db.execute(
+        select(func.count(Refund.id)).where(Refund.status == RefundStatus.waiting_for_part)
+    )).scalar() or 0
+
     archive_count = (await db.execute(
         select(func.count(Refund.id)).where(Refund.status == RefundStatus.archive)
     )).scalar() or 0
@@ -82,6 +90,8 @@ async def statistics_page(request: Request, db: AsyncSession = Depends(get_db)):
         "received_count": received_count,
         "approved_count": approved_count,
         "new_from_mail": new_from_mail,
+        "rejected_count": rejected_count,
+        "waiting_count": waiting_count,
         "archive_count": archive_count,
     })
 
