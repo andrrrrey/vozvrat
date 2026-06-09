@@ -342,6 +342,7 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     email_notifs: dict = {}
     scheduler_alive = False
     scheduler_last_check = None
+    scheduler_last_check_str = None
 
     if imap_configured:
         try:
@@ -358,6 +359,14 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         sched = await get_scheduler_status(db)
         scheduler_alive = sched["alive"]
         scheduler_last_check = sched["last_check"]
+        if scheduler_last_check:
+            try:
+                from zoneinfo import ZoneInfo
+                scheduler_last_check_str = scheduler_last_check.astimezone(
+                    ZoneInfo("Europe/Moscow")
+                ).strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                scheduler_last_check_str = scheduler_last_check.strftime("%d.%m.%Y %H:%M UTC")
 
         # Get email UIDs that have linked refunds (both auto and manual)
         result = await db.execute(
@@ -396,6 +405,7 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         "email_notifs": email_notifs,
         "scheduler_alive": scheduler_alive,
         "scheduler_last_check": scheduler_last_check,
+        "scheduler_last_check_str": scheduler_last_check_str,
         "index_offset": 0,
     })
 

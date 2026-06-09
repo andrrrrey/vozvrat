@@ -41,6 +41,34 @@
                   id="auto-create-dot"></span>
         </button>
     </div>
+
+    <!-- Scheduler status + manual reprocess -->
+    <div class="bg-white border border-gray-200 rounded-2xl px-5 py-4 mb-6 flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-2 text-sm">
+            {% if scheduler_alive %}
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Планировщик работает"></span>
+            <span class="text-gray-700">Планировщик активен</span>
+            {% else %}
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" title="Планировщик не отвечает"></span>
+            <span class="text-red-600 font-medium">Планировщик не отвечает</span>
+            {% endif %}
+            <span class="text-gray-400">·</span>
+            <span class="text-gray-500">
+                Последняя проверка почты:
+                <span class="font-medium text-gray-700">{{ scheduler_last_check_str or '—' }}</span>
+            </span>
+        </div>
+        <button type="button"
+                id="reprocess-btn"
+                onclick="reprocessEmails()"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+            <svg class="w-4 h-4" id="reprocess-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span id="reprocess-label">Обработать последние письма</span>
+        </button>
+    </div>
     {% endif %}
 
     <!-- IMAP not configured -->
@@ -161,6 +189,48 @@ function toggleAutoCreate() {
     .finally(() => {
         toggle.disabled = false;
         toggle.classList.remove('opacity-50');
+    });
+}
+
+function reprocessEmails() {
+    const btn = document.getElementById('reprocess-btn');
+    const icon = document.getElementById('reprocess-icon');
+    const label = document.getElementById('reprocess-label');
+    if (btn.disabled) return;
+
+    btn.disabled = true;
+    icon.classList.add('animate-spin');
+    const originalLabel = label.textContent;
+    label.textContent = 'Обрабатываю…';
+
+    fetch('/api/emails/reprocess', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(r => r.json().then(data => ({ok: r.ok, data})))
+    .then(({ok, data}) => {
+        if (!ok) {
+            throw new Error(data.detail || 'Ошибка обработки');
+        }
+        const msg =
+            'Готово. Просмотрено писем: ' + (data.total ?? 0) +
+            '\nСоздано заявок: ' + (data.processed ?? 0) +
+            '\nУже были заявки: ' + (data.already ?? 0) +
+            '\nПропущено фильтрами: ' + (data.skipped ?? 0) +
+            (data.failed ? '\nОшибок: ' + data.failed : '');
+        alert(msg);
+        if ((data.processed ?? 0) > 0) {
+            location.reload();
+        }
+    })
+    .catch(err => {
+        console.error('Reprocess error:', err);
+        alert('Ошибка: ' + err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        icon.classList.remove('animate-spin');
+        label.textContent = originalLabel;
     });
 }
 

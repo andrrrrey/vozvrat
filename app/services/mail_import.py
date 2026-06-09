@@ -836,6 +836,114 @@ def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]
     return results
 
 
+def _imap_fetch_recent_raw_sync(limit: int) -> list[tuple[str, bytes]]:
+    """Fetch raw bytes of the last ``limit`` messages by sequence number.
+
+    Unlike _imap_fetch_unseen_sync this does NOT rely on the IMAP UNSEEN search —
+    it grabs the newest messages regardless of their \\Seen flag. Used by the manual
+    "reprocess recent" action, which must work even when the messages were already
+    read on the server (so the scheduler's UNSEEN search never picks them up).
+    Read-only select: does not mark anything as Seen.
+    """
+    results: list[tuple[str, bytes]] = []
+    conn = None
+    try:
+        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
+                                  timeout=_IMAP_TIMEOUT)
+        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
+        _, count_data = conn.select(settings.MAIL_FOLDER, readonly=True)
+        total = int(count_data[0]) if count_data and count_data[0] else 0
+        if total == 0:
+            return results
+
+        end_seq = total
+        start_seq = max(1, end_seq - limit + 1)
+        seq_range = f"{start_seq}:{end_seq}"
+        _, msg_data_list = conn.fetch(seq_range, "(UID RFC822)")
+        if not msg_data_list:
+            return results
+
+        for item in msg_data_list:
+            if not isinstance(item, tuple) or len(item) < 2:
+                continue
+            meta = item[0]
+            raw = item[1]
+            if not raw:
+                continue
+            meta_str = meta.decode(errors="replace") if isinstance(meta, bytes) else str(meta)
+            m = re.search(r"UID (\d+)", meta_str)
+            if not m:
+                continue
+            results.append((m.group(1), raw))
+    except Exception as e:
+        logger.error(f"IMAP recent-raw fetch error: {e}", exc_info=True)
+    finally:
+        if conn:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+    # Newest first
+    return list(reversed(results))
+
+
+async def reprocess_recent_emails(db: AsyncSession, limit: int = 20) -> dict:
+    """Manually re-run the auto-create pipeline over the last ``limit`` emails.
+
+    Independent of the UNSEEN search and of the mail_auto_create_since cutoff, so it
+    catches emails the scheduler missed (e.g. already-read messages). Applies the same
+    sender/subject/XLS filters as auto-import, and skips any email that already has a
+    refund (so manually-created ones are never duplicated).
+    Returns a summary dict for the UI.
+    """
+    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+        return {"error": "IMAP credentials not configured"}
+
+    loop = asyncio.get_event_loop()
+    raw_emails = await loop.run_in_executor(
+        None, lambda: _imap_fetch_recent_raw_sync(limit)
+    )
+
+    # Emails that already have a refund (auto OR manual) must be left alone.
+    res = await db.execute(
+        select(Refund.email_uid).where(
+            Refund.source.in_([RefundSource.email, RefundSource.email_manual]),
+            Refund.email_uid.isnot(None),
+        )
+    )
+    existing_uids = set(r[0] for r in res.all())
+
+    processed = skipped = failed = already = 0
+    for uid, raw in raw_emails:
+        if uid in existing_uids:
+            already += 1
+            continue
+        try:
+            accepted, _reason = await _process_raw_email(uid, raw, db, auto_since=None)
+            await db.commit()
+            if accepted:
+                processed += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            failed += 1
+            logger.error(f"Reprocess error for uid={uid}: {e}", exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    summary = {
+        "total": len(raw_emails),
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
+        "already": already,
+    }
+    logger.info(f"Manual reprocess of last {limit} emails: {summary}")
+    return summary
+
+
 def _imap_mark_seen_sync(uid_strs: list[str]) -> None:
     """Mark a list of UIDs as \\Seen in IMAP. Best-effort — errors are logged."""
     if not uid_strs:

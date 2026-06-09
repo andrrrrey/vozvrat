@@ -58,6 +58,32 @@ async def auto_create_toggle(request: Request, db: AsyncSession = Depends(get_db
     })
 
 
+@router.post("/reprocess")
+async def reprocess_emails(request: Request, db: AsyncSession = Depends(get_db)):
+    """Manually re-run the auto-create pipeline over the last 20 emails.
+
+    Works regardless of the UNSEEN flag (so it catches messages the scheduler missed),
+    applies the normal sender/subject/XLS filters, and never touches emails that already
+    have a refund.
+    """
+    await _require_admin_or_staff(request, db)
+
+    from app.config import settings as cfg
+    if not (cfg.MAIL_LOGIN and cfg.MAIL_PASSWORD):
+        raise HTTPException(status_code=503, detail="Почта не настроена")
+
+    from app.services.mail_import import reprocess_recent_emails
+    try:
+        result = await reprocess_recent_emails(db, limit=20)
+    except Exception as e:
+        logger.error(f"Manual reprocess failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Не удалось обработать письма")
+
+    if result.get("error"):
+        raise HTTPException(status_code=503, detail=result["error"])
+    return JSONResponse(result)
+
+
 @router.get("/load-more")
 async def load_more_emails(
     request: Request,
