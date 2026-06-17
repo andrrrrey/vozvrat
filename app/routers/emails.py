@@ -68,8 +68,8 @@ async def reprocess_emails(request: Request, db: AsyncSession = Depends(get_db))
     """
     await _require_admin_or_staff(request, db)
 
-    from app.config import settings as cfg
-    if not (cfg.MAIL_LOGIN and cfg.MAIL_PASSWORD):
+    from app.services.settings_service import get_mail_config
+    if not (await get_mail_config(db)).configured:
         raise HTTPException(status_code=503, detail="Почта не настроена")
 
     from app.services.mail_import import reprocess_recent_emails
@@ -94,15 +94,22 @@ async def load_more_emails(
     await _require_admin_or_staff(request, db)
 
     from app.services.mail_reader import fetch_recent_emails
-    from app.config import settings as cfg
+    from app.services.settings_service import get_mail_config
 
-    if not cfg.MAIL_LOGIN or not cfg.MAIL_PASSWORD:
+    mc = await get_mail_config(db)
+    if not mc.configured:
         return HTMLResponse("")
 
     try:
         import asyncio
         loop = asyncio.get_event_loop()
-        emails = await loop.run_in_executor(None, lambda: fetch_recent_emails(limit=20, offset=offset))
+        emails = await loop.run_in_executor(
+            None,
+            lambda: fetch_recent_emails(
+                limit=20, offset=offset, host=mc.host, port=mc.port,
+                login=mc.login, password=mc.password, folder=mc.folder,
+            ),
+        )
     except Exception as e:
         logger.error(f"Failed to fetch more emails: {e}", exc_info=True)
         return HTMLResponse(f'<div class="text-red-500 text-sm p-4">Ошибка: {e}</div>')

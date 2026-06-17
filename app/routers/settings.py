@@ -54,6 +54,38 @@ async def test_ftp(request: Request, db: AsyncSession = Depends(get_db)):
         return JSONResponse({"ok": False, "message": f"Ошибка подключения: {e}"}, status_code=503)
 
 
+@router.post("/imap/test")
+async def test_imap(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _require_admin(request, db)
+    from app.services.settings_service import get_mail_config
+    import imaplib
+    import asyncio
+
+    mc = await get_mail_config(db)
+    if not mc.configured:
+        return JSONResponse({"ok": False, "message": "Логин или пароль ящика не настроены"}, status_code=400)
+
+    def _check():
+        conn = imaplib.IMAP4_SSL(mc.host, mc.port, timeout=10)
+        try:
+            conn.login(mc.login, mc.password)
+            conn.select(mc.folder, readonly=True)
+            return f"Подключение успешно ({mc.login})"
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
+    try:
+        loop = asyncio.get_event_loop()
+        msg = await loop.run_in_executor(None, _check)
+        return JSONResponse({"ok": True, "message": msg})
+    except Exception as e:
+        logger.error(f"IMAP test failed: {e}", exc_info=True)
+        return JSONResponse({"ok": False, "message": f"Ошибка: {e}"}, status_code=503)
+
+
 @router.post("/smtp/test")
 async def test_smtp(request: Request, db: AsyncSession = Depends(get_db)):
     user = await _require_admin(request, db)

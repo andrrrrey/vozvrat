@@ -36,20 +36,12 @@
             <!-- Items -->
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
                 <div class="flex items-center justify-between mb-5">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Позиции товаров</p>
-                    <button type="button" onclick="addItem()"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-colors">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        Добавить позицию
-                    </button>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Позиция товара</p>
                 </div>
 
                 <div id="items-container" class="space-y-4">
-                    <!-- First item (always visible) -->
+                    <!-- Single item: one article per request -->
                     <div class="item-row bg-gray-50 rounded-2xl p-4">
-                        <div class="flex items-center justify-between mb-3">
-                            <p class="text-xs font-bold text-gray-500">Позиция 1</p>
-                        </div>
                         <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
                             <div class="col-span-2 md:col-span-1">
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул *</label>
@@ -104,55 +96,6 @@
 </div>
 
 <script>
-let itemCount = 1;
-
-function addItem() {
-    itemCount++;
-    const container = document.getElementById('items-container');
-    const div = document.createElement('div');
-    div.className = 'item-row bg-gray-50 rounded-2xl p-4';
-    div.innerHTML = `
-        <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-bold text-gray-500">Позиция ${itemCount}</p>
-            <button type="button" onclick="this.closest('.item-row').remove(); renumberItems()"
-                class="text-gray-400 hover:text-red-500 transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <div class="col-span-2 md:col-span-1">
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул *</label>
-                <input type="text" name="article[]" required placeholder="BOSCH-199-22"
-                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
-            </div>
-            <div>
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Марка</label>
-                <input type="text" name="brand[]" placeholder="Bosch"
-                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-            </div>
-            <div>
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Кол-во *</label>
-                <input type="number" name="quantity[]" value="1" min="1" required
-                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-            </div>
-            <div class="col-span-2 md:col-span-3">
-                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
-                <input type="text" name="price[]" placeholder="0.00"
-                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-            </div>
-        </div>
-    `;
-    container.appendChild(div);
-}
-
-function renumberItems() {
-    document.querySelectorAll('.item-row').forEach((row, i) => {
-        const label = row.querySelector('p.text-xs');
-        if (label) label.textContent = `Позиция ${i + 1}`;
-    });
-    itemCount = document.querySelectorAll('.item-row').length;
-}
-
 const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', '.webp']);
 const MAX_SIZE = 20 * 1024 * 1024;
 

@@ -569,19 +569,110 @@ async def _find_supplier(db: AsyncSession, supplier_name: str) -> Optional[Suppl
     return result.scalar_one_or_none()
 
 
+async def _create_refund_for_item(
+    db: AsyncSession,
+    *,
+    source: RefundSource,
+    item_data: dict,
+    parsed: dict,
+    client_user_id: Optional[int],
+    client_name: str,
+    supplier_id: Optional[int],
+    unlinked_supplier_name: Optional[str],
+    subject: str,
+    from_header: str,
+    uid: str,
+    attachments_raw: list[tuple[str, bytes, str]],
+) -> Refund:
+    """Create a single Refund holding exactly one article (RefundItem).
+
+    Used to split a multi-row XLS template into one refund per article. Refund-level
+    fields (client/supplier) are resolved once by the caller and passed in; row-level
+    fields (reason/comment/order_id and the article itself) come from ``item_data``
+    with a fallback to email-body ``parsed``. Email attachments are copied into each
+    refund's directory so every заявка keeps the source files.
+    """
+    reason = item_data.get("reason") or parsed.get("reason")
+    comment = item_data.get("comment") or parsed.get("comment")
+    order_id = item_data.get("order_id") or parsed.get("order_id")
+
+    reason_text = reason
+    if comment:
+        reason_text = f"{reason}\nКомментарий: {comment}" if reason else comment
+
+    display_id = await generate_display_id(db)
+    refund = Refund(
+        display_id=display_id,
+        status=RefundStatus.received,
+        source=source,
+        client_name=client_name[:255],
+        client_user_id=client_user_id,
+        supplier_id=supplier_id,
+        supplier_name=unlinked_supplier_name,
+        order_id=str(order_id) if order_id else None,
+        reason=reason_text,
+        email_subject=subject[:500],
+        email_from=from_header[:255],
+        email_uid=uid,
+    )
+    db.add(refund)
+    await db.flush()
+    await db.refresh(refund)
+
+    refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
+    refund_dir.mkdir(parents=True, exist_ok=True)
+
+    item = RefundItem(
+        refund_id=refund.id,
+        article=item_data["article"][:255],
+        brand=item_data["brand"][:255] if item_data.get("brand") else None,
+        quantity=item_data.get("quantity", 1),
+        price=item_data.get("price", 0),
+        description=item_data.get("description"),
+        position_id=item_data.get("position_id"),
+        comment=item_data.get("comment"),
+    )
+    db.add(item)
+
+    # Save all attachments to disk. A single unwritable file must never abort the
+    # whole refund, so each write is best-effort.
+    for filename, content, _ctype in attachments_raw:
+        try:
+            file_type = detect_file_type(filename)
+            unique_name = build_stored_name(filename)
+            stored_path = str(refund_dir / unique_name)
+            with open(stored_path, "wb") as f:
+                f.write(content)
+        except Exception as att_err:
+            logger.warning(f"Failed to save attachment '{filename}' for refund {refund.id}: {att_err}")
+            continue
+        attachment = FileAttachment(
+            refund_id=refund.id,
+            filename=filename,
+            stored_path=stored_path,
+            file_type=file_type,
+            file_size=len(content),
+        )
+        db.add(attachment)
+
+    await db.flush()
+    return refund
+
+
 async def create_refund_from_uid(uid: str, db: AsyncSession):
     """
     Fetch a specific email by IMAP UID and create a Refund from it.
     Skips all auto-import filters since the admin is explicitly choosing this email.
     Returns the created Refund object or raises an exception.
     """
-    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+    from app.services.settings_service import get_mail_config
+    mc = await get_mail_config(db)
+    if not mc.configured:
         raise RuntimeError("IMAP credentials not configured")
 
-    conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
-                              timeout=_IMAP_TIMEOUT)
-    conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-    conn.select(settings.MAIL_FOLDER)
+    conn = imaplib.IMAP4_SSL(mc.host, mc.port, timeout=_IMAP_TIMEOUT)
+    conn.login(mc.login, mc.password)
+    conn.select(mc.folder)
 
     try:
         _, msg_data = conn.uid("FETCH", uid.encode(), "(RFC822)")
@@ -620,11 +711,13 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
                 if parsed_items:
                     xls_items = parsed_items
 
-        # Merge: XLS data takes precedence over email body data
-        xls_first = xls_items[0] if xls_items else {}
-        reason = xls_first.get("reason") or parsed.get("reason")
-        comment = xls_first.get("comment") or parsed.get("comment")
-        order_id = xls_first.get("order_id") or parsed.get("order_id")
+        # Require our Excel template: the email must contain an XLS recognised by the
+        # parser (i.e. with an "Артикул" column). Otherwise we don't create anything.
+        if not xls_items:
+            raise ValueError("В письме нет Excel нашего шаблона (колонка «Артикул»)")
+
+        # Refund-level fields (client/supplier) are shared across rows — resolve once.
+        xls_first = xls_items[0]
         client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
         client_email_from_xls = xls_first.get("client_email")
         supplier_name_from_xls = xls_first.get("supplier_name")
@@ -651,85 +744,30 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             else:
                 unlinked_supplier_name = supplier_name_from_xls
 
-        reason_text = reason
-        if comment:
-            reason_text = f"{reason}\nКомментарий: {comment}" if reason else comment
+        logger.info(f"Creating refund(s) from email UID={uid}: subject='{subject}' from='{from_header}' articles={len(xls_items)}")
 
-        logger.info(f"Creating refund from email UID={uid}: subject='{subject}' from='{from_header}'")
-        display_id = await generate_display_id(db)
-
-        refund = Refund(
-            display_id=display_id,
-            status=RefundStatus.received,
-            source=RefundSource.email_manual,
-            client_name=client_name[:255],
-            client_user_id=client_user_id,
-            supplier_id=supplier_id,
-            supplier_name=unlinked_supplier_name,
-            order_id=str(order_id) if order_id else None,
-            reason=reason_text,
-            email_subject=subject[:500],
-            email_from=from_header[:255],
-            email_uid=uid,
-        )
-        db.add(refund)
-        await db.flush()
-        await db.refresh(refund)
-
-        refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
-        refund_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create RefundItems: XLS rows preferred, fall back to email body article
-        if xls_items:
-            for item_data in xls_items:
-                item = RefundItem(
-                    refund_id=refund.id,
-                    article=item_data["article"][:255],
-                    brand=item_data["brand"][:255] if item_data.get("brand") else None,
-                    quantity=item_data.get("quantity", 1),
-                    price=item_data.get("price", 0),
-                    description=item_data.get("description"),
-                    position_id=item_data.get("position_id"),
-                    comment=item_data.get("comment"),
-                )
-                db.add(item)
-            logger.debug(f"Created {len(xls_items)} items from XLS for refund {refund.id}")
-        elif parsed.get("article"):
-            item = RefundItem(
-                refund_id=refund.id,
-                article=parsed["article"][:255],
-                brand=parsed["brand"][:255] if parsed.get("brand") else None,
-                quantity=parsed.get("quantity", 1),
-                price=parsed.get("price") or 0,
-                description=parsed.get("description"),
+        # One refund per article (one article per request).
+        created_refunds: list[Refund] = []
+        for item_data in xls_items:
+            refund = await _create_refund_for_item(
+                db,
+                source=RefundSource.email_manual,
+                item_data=item_data,
+                parsed=parsed,
+                client_user_id=client_user_id,
+                client_name=client_name,
+                supplier_id=supplier_id,
+                unlinked_supplier_name=unlinked_supplier_name,
+                subject=subject,
+                from_header=from_header,
+                uid=uid,
+                attachments_raw=attachments_raw,
             )
-            db.add(item)
-            logger.debug(f"Created item from email body for refund {refund.id}: article={parsed['article']}")
+            created_refunds.append(refund)
 
-        # Save all attachments to disk. A single unwritable file must never abort the
-        # whole refund, so each write is best-effort.
-        for filename, content, _ctype in attachments_raw:
-            try:
-                file_type = detect_file_type(filename)
-                unique_name = build_stored_name(filename)
-                stored_path = str(refund_dir / unique_name)
-                with open(stored_path, "wb") as f:
-                    f.write(content)
-            except Exception as att_err:
-                logger.warning(f"Failed to save attachment '{filename}' for refund {refund.id}: {att_err}")
-                continue
-            attachment = FileAttachment(
-                refund_id=refund.id,
-                filename=filename,
-                stored_path=stored_path,
-                file_type=file_type,
-                file_size=len(content),
-            )
-            db.add(attachment)
+        first_refund = created_refunds[0]
 
-        await db.flush()
-
-        # Upsert MailNotification linking this email to the new refund
+        # Upsert MailNotification linking this email to the first created refund
         from app.models.mail_notification import MailNotification
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         _notif_insert = pg_insert(MailNotification).values(
@@ -737,11 +775,11 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             subject=subject[:500] if subject else None,
             from_email=email.utils.parseaddr(from_header)[1][:255],
             from_name=(email.utils.parseaddr(from_header)[0] or email.utils.parseaddr(from_header)[1])[:255],
-            refund_id=refund.id,
+            refund_id=first_refund.id,
             is_read=False,
         ).on_conflict_do_update(
             index_elements=['email_uid'],
-            set_={'refund_id': refund.id}
+            set_={'refund_id': first_refund.id}
         )
         await db.execute(_notif_insert)
 
@@ -752,8 +790,8 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
             conn.uid("STORE", uid.encode(), "+FLAGS", "\\Seen")
         except Exception as seen_err:
             logger.warning(f"Failed to mark email UID={uid} as Seen: {seen_err}")
-        logger.info(f"Created refund {display_id} (id={refund.id}) from email UID={uid}")
-        return refund
+        logger.info(f"Created {len(created_refunds)} refund(s) from email UID={uid} (first id={first_refund.id})")
+        return first_refund
     finally:
         try:
             conn.logout()
@@ -764,7 +802,9 @@ async def create_refund_from_uid(uid: str, db: AsyncSession):
 _IMAP_TIMEOUT = 30  # seconds; prevents indefinite event-loop freeze
 
 
-def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]]:
+def _imap_fetch_unseen_sync(
+    criteria: str, limit: int, host: str, port: int, login: str, password: str, folder: str
+) -> list[tuple[str, bytes]]:
     """
     Pure-sync IMAP fetch — runs in thread pool so the async event loop stays free.
     Connects, searches, batch-fetches unseen emails, marks them as Seen, disconnects.
@@ -773,10 +813,9 @@ def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]
     results: list[tuple[str, bytes]] = []
     conn = None
     try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
-                                  timeout=_IMAP_TIMEOUT)
-        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-        conn.select(settings.MAIL_FOLDER)
+        conn = imaplib.IMAP4_SSL(host, port, timeout=_IMAP_TIMEOUT)
+        conn.login(login, password)
+        conn.select(folder)
 
         _, uid_data = conn.uid("SEARCH", None, criteria)
         uids = uid_data[0].split() if uid_data[0] else []
@@ -819,7 +858,9 @@ def _imap_fetch_unseen_sync(criteria: str, limit: int) -> list[tuple[str, bytes]
     return results
 
 
-def _imap_fetch_recent_raw_sync(limit: int) -> list[tuple[str, bytes]]:
+def _imap_fetch_recent_raw_sync(
+    limit: int, host: str, port: int, login: str, password: str, folder: str
+) -> list[tuple[str, bytes]]:
     """Fetch raw bytes of the last ``limit`` messages by sequence number.
 
     Unlike _imap_fetch_unseen_sync this does NOT rely on the IMAP UNSEEN search —
@@ -831,10 +872,9 @@ def _imap_fetch_recent_raw_sync(limit: int) -> list[tuple[str, bytes]]:
     results: list[tuple[str, bytes]] = []
     conn = None
     try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
-                                  timeout=_IMAP_TIMEOUT)
-        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-        _, count_data = conn.select(settings.MAIL_FOLDER, readonly=True)
+        conn = imaplib.IMAP4_SSL(host, port, timeout=_IMAP_TIMEOUT)
+        conn.login(login, password)
+        _, count_data = conn.select(folder, readonly=True)
         total = int(count_data[0]) if count_data and count_data[0] else 0
         if total == 0:
             return results
@@ -879,12 +919,14 @@ async def reprocess_recent_emails(db: AsyncSession, limit: int = 20) -> dict:
     refund (so manually-created ones are never duplicated).
     Returns a summary dict for the UI.
     """
-    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+    from app.services.settings_service import get_mail_config
+    mc = await get_mail_config(db)
+    if not mc.configured:
         return {"error": "IMAP credentials not configured"}
 
     loop = asyncio.get_event_loop()
     raw_emails = await loop.run_in_executor(
-        None, lambda: _imap_fetch_recent_raw_sync(limit)
+        None, lambda: _imap_fetch_recent_raw_sync(limit, mc.host, mc.port, mc.login, mc.password, mc.folder)
     )
 
     # Emails that already have a refund (auto OR manual) must be left alone.
@@ -927,16 +969,17 @@ async def reprocess_recent_emails(db: AsyncSession, limit: int = 20) -> dict:
     return summary
 
 
-def _imap_mark_seen_sync(uid_strs: list[str]) -> None:
+def _imap_mark_seen_sync(
+    uid_strs: list[str], host: str, port: int, login: str, password: str, folder: str
+) -> None:
     """Mark a list of UIDs as \\Seen in IMAP. Best-effort — errors are logged."""
     if not uid_strs:
         return
     conn = None
     try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT,
-                                  timeout=_IMAP_TIMEOUT)
-        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
-        conn.select(settings.MAIL_FOLDER)
+        conn = imaplib.IMAP4_SSL(host, port, timeout=_IMAP_TIMEOUT)
+        conn.login(login, password)
+        conn.select(folder)
         uid_list = ",".join(uid_strs).encode()
         conn.uid("STORE", uid_list, "+FLAGS", "\\Seen")
     except Exception as e:
@@ -951,11 +994,12 @@ def _imap_mark_seen_sync(uid_strs: list[str]) -> None:
 
 async def process_emails(db: AsyncSession) -> int:
     """Fetch unseen emails and create Refunds. IMAP runs in thread pool to avoid blocking event loop."""
-    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+    from app.services.settings_service import get_setting, get_mail_config
+    mc = await get_mail_config(db)
+    if not mc.configured:
         logger.warning("IMAP credentials not configured, skipping mail import")
         return 0
 
-    from app.services.settings_service import get_setting
     auto_enabled = (await get_setting(db, "mail_auto_create_enabled")).lower() == "true"
     if not auto_enabled:
         return 0
@@ -974,7 +1018,7 @@ async def process_emails(db: AsyncSession) -> int:
     # Phase 1: IMAP (sync, thread pool) — does NOT block the event loop
     loop = asyncio.get_event_loop()
     raw_emails = await loop.run_in_executor(
-        None, lambda: _imap_fetch_unseen_sync(criteria, limit)
+        None, lambda: _imap_fetch_unseen_sync(criteria, limit, mc.host, mc.port, mc.login, mc.password, mc.folder)
     )
 
     # Phase 2: process each fetched email with async DB
@@ -1045,7 +1089,9 @@ async def process_emails(db: AsyncSession) -> int:
 
     # Mark Seen in IMAP for all successfully processed or filtered emails
     if uids_to_mark_seen:
-        await loop.run_in_executor(None, lambda: _imap_mark_seen_sync(uids_to_mark_seen))
+        await loop.run_in_executor(
+            None, lambda: _imap_mark_seen_sync(uids_to_mark_seen, mc.host, mc.port, mc.login, mc.password, mc.folder)
+        )
 
     return processed
 
@@ -1116,15 +1162,10 @@ async def _process_raw_email(
         await _record_skip("Тема письма не содержит ключевых слов")
         return False, "no_keyword"
 
-    if settings.MAIL_REQUIRE_XLS and not _has_xls_attachment(msg):
-        logger.debug(f"Skipped (no XLS attachment): subject='{subject}' from='{from_header}'")
-        await _record_skip("Нет XLS/XLSX вложения")
-        return False, "no_xls"
-
     body_text = get_email_body_text(msg)
     parsed = parse_body_data(f"{subject}\n{body_text}")
 
-    # Pre-scan attachments to find XLS before creating the refund
+    # Pre-scan attachments to find an XLS matching our template before creating anything
     attachments_raw: list[tuple[str, bytes, str]] = []
     xls_items: list[dict] = []
 
@@ -1146,11 +1187,15 @@ async def _process_raw_email(
             if parsed_items:
                 xls_items = parsed_items
 
-    # Merge: XLS data takes precedence over email body data
-    xls_first = xls_items[0] if xls_items else {}
-    reason = xls_first.get("reason") or parsed.get("reason")
-    comment = xls_first.get("comment") or parsed.get("comment")
-    order_id = xls_first.get("order_id") or parsed.get("order_id")
+    # Require our Excel template: an XLS recognised by the parser (with an "Артикул"
+    # column). No matching template → no refund.
+    if not xls_items:
+        logger.debug(f"Skipped (no template XLS): subject='{subject}' from='{from_header}'")
+        await _record_skip("Файл не соответствует шаблону (нет колонки «Артикул»)")
+        return False, "no_template"
+
+    # Refund-level fields (client/supplier) are shared across rows — resolve once.
+    xls_first = xls_items[0]
     client_ext_id = xls_first.get("client_ext_id") or parsed.get("client_ext_id")
     client_email_from_xls = xls_first.get("client_email")
     supplier_name_from_xls = xls_first.get("supplier_name")
@@ -1176,88 +1221,33 @@ async def _process_raw_email(
         else:
             unlinked_supplier_name = supplier_name_from_xls
 
-    reason_text = reason
-    if comment:
-        reason_text = f"{reason}\nКомментарий: {comment}" if reason else comment
+    logger.info(f"Processing email: subject='{subject}' from='{from_header}' articles={len(xls_items)}")
 
-    logger.info(f"Processing email: subject='{subject}' from='{from_header}'")
-    display_id = await generate_display_id(db)
-
-    refund = Refund(
-        display_id=display_id,
-        status=RefundStatus.received,
-        source=RefundSource.email,
-        client_name=client_name[:255],
-        client_user_id=client_user_id,
-        supplier_id=supplier_id,
-        supplier_name=unlinked_supplier_name,
-        order_id=str(order_id) if order_id else None,
-        reason=reason_text,
-        email_subject=subject[:500],
-        email_from=from_header[:255],
-        email_uid=uid,
-    )
-    db.add(refund)
-    await db.flush()
-    await db.refresh(refund)
-
-    refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund.id}"
-    refund_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create RefundItems: XLS rows preferred, fall back to email body article
-    if xls_items:
-        for item_data in xls_items:
-            item = RefundItem(
-                refund_id=refund.id,
-                article=item_data["article"][:255],
-                brand=item_data["brand"][:255] if item_data.get("brand") else None,
-                quantity=item_data.get("quantity", 1),
-                price=item_data.get("price", 0),
-                description=item_data.get("description"),
-                position_id=item_data.get("position_id"),
-                comment=item_data.get("comment"),
-            )
-            db.add(item)
-        logger.debug(f"Created {len(xls_items)} items from XLS for refund {refund.id}")
-    elif parsed.get("article"):
-        item = RefundItem(
-            refund_id=refund.id,
-            article=parsed["article"][:255],
-            brand=parsed["brand"][:255] if parsed.get("brand") else None,
-            quantity=parsed.get("quantity", 1),
-            price=parsed.get("price") or 0,
-            description=parsed.get("description"),
+    # One refund per article (one article per request).
+    created_refunds: list[Refund] = []
+    for item_data in xls_items:
+        refund = await _create_refund_for_item(
+            db,
+            source=RefundSource.email,
+            item_data=item_data,
+            parsed=parsed,
+            client_user_id=client_user_id,
+            client_name=client_name,
+            supplier_id=supplier_id,
+            unlinked_supplier_name=unlinked_supplier_name,
+            subject=subject,
+            from_header=from_header,
+            uid=uid,
+            attachments_raw=attachments_raw,
         )
-        db.add(item)
+        created_refunds.append(refund)
 
-    # Save all attachments to disk. A single unwritable file must never abort the
-    # whole refund, so each write is best-effort.
-    for filename, content, _ctype in attachments_raw:
-        try:
-            file_type = detect_file_type(filename)
-            unique_name = build_stored_name(filename)
-            stored_path = str(refund_dir / unique_name)
-            with open(stored_path, "wb") as f:
-                f.write(content)
-        except Exception as att_err:
-            logger.warning(f"Failed to save attachment '{filename}' for refund {refund.id}: {att_err}")
-            continue
-        attachment = FileAttachment(
-            refund_id=refund.id,
-            filename=filename,
-            stored_path=stored_path,
-            file_type=file_type,
-            file_size=len(content),
-        )
-        db.add(attachment)
-
-    await db.flush()
-
+    first_refund = created_refunds[0]
     await db.execute(
         sa_update(MailNotification)
         .where(MailNotification.email_uid == uid)
-        .values(refund_id=refund.id, processing_status="processed", skip_reason=None)
+        .values(refund_id=first_refund.id, processing_status="processed", skip_reason=None)
     )
 
-    logger.info(f"Created refund {display_id} (id={refund.id}) from email uid={uid}")
+    logger.info(f"Created {len(created_refunds)} refund(s) from email uid={uid} (first id={first_refund.id})")
     return True, None
