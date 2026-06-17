@@ -1,4 +1,5 @@
 """Service for reading/writing app settings stored in the database."""
+from dataclasses import dataclass
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,6 +20,12 @@ SETTING_KEYS = {
     "ftp_user": "",
     "ftp_password": "",
     "ftp_path": "/",
+    # IMAP (входящая почта). Пустые значения = брать из .env (фолбэк).
+    "mail_imap_host": "",
+    "mail_imap_port": "",
+    "mail_login": "",
+    "mail_password": "",
+    "mail_folder": "",
     # Supplier email test mode
     "supplier_email_test_mode": "false",
     "supplier_email_test_address": "",
@@ -86,3 +93,38 @@ async def save_settings(db: AsyncSession, data: dict[str, str]) -> None:
     for key, value in data.items():
         if key in SETTING_KEYS:
             await set_setting(db, key, str(value))
+
+
+@dataclass
+class MailConfig:
+    """Resolved IMAP connection settings."""
+    host: str
+    port: int
+    login: str
+    password: str
+    folder: str
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.login and self.password)
+
+
+async def get_mail_config(db: AsyncSession) -> MailConfig:
+    """Resolve IMAP settings: DB-backed values override .env fallback.
+
+    Admins edit these on /settings. Any field left blank in the DB falls back to the
+    corresponding MAIL_* environment variable, preserving backward compatibility.
+    """
+    from app.config import settings as cfg
+
+    host = (await get_setting(db, "mail_imap_host")).strip() or cfg.MAIL_IMAP_HOST
+    port_raw = (await get_setting(db, "mail_imap_port")).strip()
+    try:
+        port = int(port_raw) if port_raw else cfg.MAIL_IMAP_PORT
+    except ValueError:
+        port = cfg.MAIL_IMAP_PORT
+    login = (await get_setting(db, "mail_login")).strip() or cfg.MAIL_LOGIN
+    password = (await get_setting(db, "mail_password")) or cfg.MAIL_PASSWORD
+    folder = (await get_setting(db, "mail_folder")).strip() or cfg.MAIL_FOLDER
+
+    return MailConfig(host=host, port=port, login=login, password=password, folder=folder)

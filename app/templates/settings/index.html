@@ -65,6 +65,54 @@
             </div>
         </div>
 
+        <!-- IMAP / Входящая почта -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Входящая почта (IMAP)</p>
+            <p class="text-xs text-gray-400 mb-4">Ящик, из которого загружаются письма и создаются заявки на возврат. Пустые поля берутся из переменных окружения.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">IMAP хост</label>
+                    <input type="text" name="mail_imap_host" value="{{ app_settings.mail_imap_host }}"
+                        placeholder="imap.mail.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Порт</label>
+                    <input type="number" name="mail_imap_port" value="{{ app_settings.mail_imap_port }}"
+                        placeholder="993"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Логин (адрес ящика)</label>
+                    <input type="text" name="mail_login" value="{{ app_settings.mail_login }}"
+                        placeholder="vz@amx24.ru"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Пароль</label>
+                    <input type="password" name="mail_password" value="{{ app_settings.mail_password }}"
+                        placeholder="••••••••"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Папка</label>
+                    <input type="text" name="mail_folder" value="{{ app_settings.mail_folder }}"
+                        placeholder="INBOX"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button type="button" onclick="testImap()"
+                    class="flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Проверить подключение
+                </button>
+                <span id="imap-test-result" class="ml-3 text-xs"></span>
+            </div>
+        </div>
+
         <!-- Тестовый режим отправки поставщикам -->
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Отправка писем поставщикам</p>
@@ -231,6 +279,18 @@ async function testSmtp() {
     const form = document.getElementById('settings-form');
     await fetch('/api/settings', { method: 'POST', body: new FormData(form) });
     const res = await fetch('/api/settings/smtp/test', { method: 'POST' });
+    const json = await res.json();
+    el.textContent = json.message;
+    el.className = 'ml-3 text-xs ' + (json.ok ? 'text-green-600' : 'text-red-600');
+}
+
+async function testImap() {
+    const el = document.getElementById('imap-test-result');
+    el.textContent = 'Проверяю...';
+    el.className = 'ml-3 text-xs text-gray-500';
+    const form = document.getElementById('settings-form');
+    await fetch('/api/settings', { method: 'POST', body: new FormData(form) });
+    const res = await fetch('/api/settings/imap/test', { method: 'POST' });
     const json = await res.json();
     el.textContent = json.message;
     el.className = 'ml-3 text-xs ' + (json.ok ? 'text-green-600' : 'text-red-600');

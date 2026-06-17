@@ -322,6 +322,10 @@ async def create_client_refund(
     prices = form.getlist("price[]")
     descriptions = form.getlist("description[]")
 
+    # Одна заявка — один артикул
+    if len([a for a in articles if str(a).strip()]) > 1:
+        raise HTTPException(status_code=400, detail="Можно указать только один артикул в заявке")
+
     display_id = await generate_display_id(db)
 
     refund = Refund(

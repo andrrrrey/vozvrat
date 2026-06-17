@@ -113,26 +113,43 @@ def _get_attachments(msg: email.message.Message) -> list[dict]:
     return attachments
 
 
-def fetch_recent_emails(limit: int = 20, offset: int = 0) -> list[dict]:
+def fetch_recent_emails(
+    limit: int = 20,
+    offset: int = 0,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    login: Optional[str] = None,
+    password: Optional[str] = None,
+    folder: Optional[str] = None,
+) -> list[dict]:
     """
     Fetch emails from IMAP (read-only, no marking as seen).
     Uses sequence numbers (not SEARCH ALL) for O(1) pagination — avoids
     transferring thousands of UIDs over the wire on large mailboxes.
     offset=0 → newest `limit` emails; offset=20 → next 20, etc.
+
+    Connection params default to the MAIL_* env settings when not provided, so
+    callers that resolved DB-backed settings can pass them explicitly.
     """
     import re as _re
-    if not settings.MAIL_LOGIN or not settings.MAIL_PASSWORD:
+    host = host or settings.MAIL_IMAP_HOST
+    port = port or settings.MAIL_IMAP_PORT
+    login = login if login is not None else settings.MAIL_LOGIN
+    password = password if password is not None else settings.MAIL_PASSWORD
+    folder = folder or settings.MAIL_FOLDER
+
+    if not login or not password:
         logger.warning("IMAP credentials not configured, cannot fetch emails")
         return []
 
     emails = []
     conn = None
     try:
-        conn = imaplib.IMAP4_SSL(settings.MAIL_IMAP_HOST, settings.MAIL_IMAP_PORT, timeout=30)
-        conn.login(settings.MAIL_LOGIN, settings.MAIL_PASSWORD)
+        conn = imaplib.IMAP4_SSL(host, port, timeout=30)
+        conn.login(login, password)
 
         # SELECT returns total message count — no SEARCH ALL needed
-        _, count_data = conn.select(settings.MAIL_FOLDER, readonly=True)
+        _, count_data = conn.select(folder, readonly=True)
         total_msgs = int(count_data[0]) if count_data and count_data[0] else 0
 
         if total_msgs == 0:

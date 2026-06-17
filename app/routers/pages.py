@@ -331,10 +331,10 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         return RedirectResponse(url="/refunds", status_code=302)
 
     from app.services.mail_reader import fetch_recent_emails
-    from app.services.settings_service import get_setting
-    from app.config import settings as cfg
+    from app.services.settings_service import get_setting, get_mail_config
 
-    imap_configured = bool(cfg.MAIL_LOGIN and cfg.MAIL_PASSWORD)
+    mc = await get_mail_config(db)
+    imap_configured = mc.configured
     emails = []
     fetch_error = None
     auto_create_enabled = False
@@ -348,7 +348,13 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
         try:
             import asyncio
             loop = asyncio.get_event_loop()
-            emails = await loop.run_in_executor(None, lambda: fetch_recent_emails(limit=20))
+            emails = await loop.run_in_executor(
+                None,
+                lambda: fetch_recent_emails(
+                    limit=20, host=mc.host, port=mc.port,
+                    login=mc.login, password=mc.password, folder=mc.folder,
+                ),
+            )
         except Exception as e:
             logger.error(f"Failed to fetch emails for viewer: {e}", exc_info=True)
             fetch_error = str(e)
