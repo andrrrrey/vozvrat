@@ -520,3 +520,241 @@ async def client_refund_detail(
         "client_files": client_files,
         "ukd_file": ukd_file,
     })
+
+
+# ---------------------------------------------------------------------------
+# Запросы (Requests) — страницы
+# ---------------------------------------------------------------------------
+
+@router.get("/requests")
+async def requests_page(
+    request: Request,
+    status: Optional[str] = None,
+    executor_id: Optional[int] = None,
+    client_name: Optional[str] = None,
+    date: Optional[str] = None,
+    article: Optional[str] = None,
+    order_id: Optional[str] = None,
+    page: int = 1,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value == "client":
+        return RedirectResponse(url="/client/requests", status_code=302)
+
+    from app.models.request import Request as RequestModel, RequestStatus
+    from app.models.user import User as UserModel, UserRole
+    from app.routers.requests import build_request_filter
+    from app.routers.notifications import get_unread_per_request
+
+    per_page = 20
+    if page < 1:
+        page = 1
+
+    query = select(RequestModel).options(
+        selectinload(RequestModel.items),
+        selectinload(RequestModel.executor),
+    ).order_by(RequestModel.created_at.desc())
+
+    query = build_request_filter(query, status, executor_id, client_name, date, article, order_id)
+
+    count_q = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    query = query.offset((page - 1) * per_page).limit(per_page)
+    result = await db.execute(query)
+    requests_list = result.scalars().all()
+
+    executors_result = await db.execute(
+        select(UserModel).where(
+            UserModel.role.in_([UserRole.admin, UserRole.staff]),
+            UserModel.is_active == True,
+        ).order_by(UserModel.full_name)
+    )
+    executors = executors_result.scalars().all()
+
+    unread_counts = await get_unread_per_request(user, db)
+
+    return templates.TemplateResponse("requests/list.html", {
+        "request": request,
+        "user": user,
+        "requests": requests_list,
+        "executors": executors,
+        "statuses": RequestStatus,
+        "current_status": status,
+        "current_executor_id": executor_id,
+        "current_client_name": client_name or "",
+        "current_date": date or "",
+        "current_article": article or "",
+        "current_order_id": order_id or "",
+        "unread_counts": unread_counts,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+    })
+
+
+@router.get("/requests/create")
+async def create_request_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value not in ("admin", "staff"):
+        return RedirectResponse(url="/requests", status_code=302)
+
+    from app.models.user import User as UserModel, UserRole
+    clients_result = await db.execute(
+        select(UserModel).where(UserModel.role == UserRole.client, UserModel.is_active == True).order_by(UserModel.full_name)
+    )
+    clients = clients_result.scalars().all()
+    executors_result = await db.execute(
+        select(UserModel).where(
+            UserModel.role.in_([UserRole.admin, UserRole.staff]),
+            UserModel.is_active == True,
+        ).order_by(UserModel.full_name)
+    )
+    executors = executors_result.scalars().all()
+
+    return templates.TemplateResponse("requests/create.html", {
+        "request": request,
+        "user": user,
+        "clients": clients,
+        "executors": executors,
+    })
+
+
+@router.get("/requests/{request_id}")
+async def request_detail_page(request_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value == "client":
+        return RedirectResponse(url=f"/client/requests/{request_id}", status_code=302)
+
+    from app.models.request import Request as RequestModel, RequestStatus
+    from app.models.user import User as UserModel, UserRole
+    from app.routers.notifications import mark_request_read
+
+    result = await db.execute(
+        select(RequestModel).options(
+            selectinload(RequestModel.items),
+            selectinload(RequestModel.files),
+            selectinload(RequestModel.client_user),
+            selectinload(RequestModel.executor),
+            selectinload(RequestModel.created_by),
+        ).where(RequestModel.id == request_id)
+    )
+    req = result.scalar_one_or_none()
+    if not req:
+        return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
+
+    await mark_request_read(request_id, user.id, db)
+
+    executors_result = await db.execute(
+        select(UserModel).where(
+            UserModel.role.in_([UserRole.admin, UserRole.staff]),
+            UserModel.is_active == True,
+        ).order_by(UserModel.full_name)
+    )
+    executors = executors_result.scalars().all()
+
+    staff_users = executors  # для @упоминаний во внутренних комментариях
+
+    public_files = sorted([f for f in req.files if not f.is_internal], key=lambda f: f.id)
+    internal_files = sorted([f for f in req.files if f.is_internal], key=lambda f: f.id)
+
+    return templates.TemplateResponse("requests/card.html", {
+        "request": request,
+        "user": user,
+        "req": req,
+        "statuses": RequestStatus,
+        "executors": executors,
+        "staff_users": staff_users,
+        "public_files": public_files,
+        "internal_files": internal_files,
+    })
+
+
+@router.get("/client/requests")
+async def client_requests_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value != "client":
+        return RedirectResponse(url="/requests", status_code=302)
+
+    from app.models.request import Request as RequestModel
+    from app.routers.notifications import get_unread_per_request
+
+    result = await db.execute(
+        select(RequestModel).options(
+            selectinload(RequestModel.items),
+            selectinload(RequestModel.executor),
+        ).where(
+            RequestModel.client_user_id == user.id
+        ).order_by(RequestModel.created_at.desc())
+    )
+    requests_list = result.scalars().all()
+    unread_counts = await get_unread_per_request(user, db)
+
+    return templates.TemplateResponse("client/requests_list.html", {
+        "request": request,
+        "user": user,
+        "requests": requests_list,
+        "unread_counts": unread_counts,
+    })
+
+
+@router.get("/client/requests/create")
+async def client_create_request_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value != "client":
+        return RedirectResponse(url="/requests/create", status_code=302)
+
+    return templates.TemplateResponse("client/requests_create.html", {
+        "request": request,
+        "user": user,
+    })
+
+
+@router.get("/client/requests/{request_id}")
+async def client_request_detail(request_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value != "client":
+        return RedirectResponse(url=f"/requests/{request_id}", status_code=302)
+
+    from app.models.request import Request as RequestModel
+    from app.routers.notifications import mark_request_read
+
+    result = await db.execute(
+        select(RequestModel).options(
+            selectinload(RequestModel.items),
+            selectinload(RequestModel.files),
+            selectinload(RequestModel.executor),
+        ).where(
+            RequestModel.id == request_id,
+            RequestModel.client_user_id == user.id,
+        )
+    )
+    req = result.scalar_one_or_none()
+    if not req:
+        return RedirectResponse(url="/client/requests", status_code=302)
+
+    await mark_request_read(request_id, user.id, db)
+    client_files = [f for f in req.files if not f.is_internal]
+
+    return templates.TemplateResponse("client/requests_card.html", {
+        "request": request,
+        "user": user,
+        "req": req,
+        "client_files": client_files,
+    })

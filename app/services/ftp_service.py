@@ -66,46 +66,32 @@ def _build_1c_csv(refunds: list) -> bytes:
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
         "Номер возврата",
-        "Статус",
-        "Клиент",
-        "Поставщик",
-        "ID заказа",
+        "Номер УПД",
+        "ID позиции",
+        "ID Заказа",
         "Артикул",
         "Производитель",
-        "Количество",
-        "Цена",
-        "Причина возврата",
-        "Номер документа поставщика",
-        "Дата создания",
     ])
     for refund in refunds:
+        upd = refund.upd_number or "" if refund.is_manual else ""
         if refund.items:
             for item in refund.items:
                 writer.writerow([
                     refund.display_id,
-                    refund.status_label,
-                    refund.client_name,
-                    refund.supplier.name if refund.supplier else "",
+                    upd,
+                    item.position_id or "",
                     refund.order_id or "",
                     item.article,
                     item.brand or "",
-                    item.quantity,
-                    str(item.price),
-                    refund.reason or "",
-                    refund.supplier_doc_number or "",
-                    refund.created_at.strftime("%d.%m.%Y %H:%M"),
                 ])
         else:
             writer.writerow([
                 refund.display_id,
-                refund.status_label,
-                refund.client_name,
-                refund.supplier.name if refund.supplier else "",
+                upd,
+                "",
                 refund.order_id or "",
-                "", "", "", "",
-                refund.reason or "",
-                refund.supplier_doc_number or "",
-                refund.created_at.strftime("%d.%m.%Y %H:%M"),
+                "",
+                "",
             ])
     return output.getvalue().encode("utf-8-sig")
 
@@ -129,30 +115,26 @@ def build_1c_csv(refunds: list) -> bytes:
 
 
 def build_1c_xlsx(refunds: list) -> bytes:
-    """Build XLSX export for 1C. Article and order ID columns are stored as text
-    to prevent Excel from converting long numeric strings to scientific notation."""
+    """Build XLSX export for 1C. The position ID, order ID and article columns are
+    stored as text to prevent Excel from converting long numeric strings to
+    scientific notation. The "Номер УПД" column is always present but filled only
+    for manual returns."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Возврат 1С"
 
     headers = [
         "Номер возврата",
-        "Статус",
-        "Клиент",
-        "Поставщик",
-        "ID заказа",
+        "Номер УПД",
+        "ID позиции",
+        "ID Заказа",
         "Артикул",
         "Производитель",
-        "Количество",
-        "Цена",
-        "Причина возврата",
-        "Номер документа поставщика",
-        "Дата создания",
     ]
     ws.append(headers)
 
-    # Columns that must stay as text: E=ID заказа (5), F=Артикул (6)
-    TEXT_COLS = {5, 6}
+    # Columns that must stay as text: C=ID позиции (3), D=ID Заказа (4), E=Артикул (5)
+    TEXT_COLS = {3, 4, 5}
 
     def _append_row(row_values: list) -> None:
         ws.append(row_values)
@@ -163,36 +145,25 @@ def build_1c_xlsx(refunds: list) -> bytes:
             cell.number_format = "@"
 
     for refund in refunds:
+        upd = refund.upd_number or "" if refund.is_manual else ""
         if refund.items:
             for item in refund.items:
                 _append_row([
                     refund.display_id,
-                    refund.status_label,
-                    refund.client_name,
-                    refund.supplier.name if refund.supplier else "",
+                    upd,
+                    item.position_id or "",
                     refund.order_id or "",
                     item.article,
                     item.brand or "",
-                    item.quantity,
-                    float(item.price),
-                    refund.reason or "",
-                    refund.supplier_doc_number or "",
-                    refund.created_at.strftime("%d.%m.%Y %H:%M"),
                 ])
         else:
             _append_row([
                 refund.display_id,
-                refund.status_label,
-                refund.client_name,
-                refund.supplier.name if refund.supplier else "",
+                upd,
+                "",
                 refund.order_id or "",
                 "",
                 "",
-                "",
-                "",
-                refund.reason or "",
-                refund.supplier_doc_number or "",
-                refund.created_at.strftime("%d.%m.%Y %H:%M"),
             ])
 
     output = io.BytesIO()

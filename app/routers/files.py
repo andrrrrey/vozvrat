@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.refund import Refund
+from app.models.request import Request as RequestModel
 from app.models.file_attachment import FileAttachment
 from app.services.auth import get_current_user
 from app.services.file_service import save_file, get_file_for_download, guess_media_type
@@ -65,6 +66,38 @@ async def upload_file(
     return _render_files_section(request, updated_refund, user, is_internal)
 
 
+@router.post("/upload-request/{request_id}")
+async def upload_request_file(
+    request_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    internal: str = Form("false"),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+
+    result = await db.execute(select(RequestModel).where(RequestModel.id == request_id))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+
+    if user.role.value == "client" and req.client_user_id != user.id:
+        raise HTTPException(status_code=403, detail="Нет доступа к этому запросу")
+
+    is_internal = str(internal).lower() in ("true", "1", "on")
+    if is_internal and user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    await save_file(file, None, db, uploaded_by_id=user.id, is_internal=is_internal, request_id=request_id)
+
+    result2 = await db.execute(
+        select(RequestModel).options(selectinload(RequestModel.files)).where(RequestModel.id == request_id)
+    )
+    updated_req = result2.scalar_one()
+
+    return _render_files_section(request, updated_req, user, is_internal)
+
+
 @router.delete("/{file_id}")
 async def delete_file(
     file_id: int,
@@ -81,6 +114,7 @@ async def delete_file(
         raise HTTPException(status_code=404, detail="Файл не найден")
 
     refund_id = attachment.refund_id
+    request_id = attachment.request_id
     was_internal = bool(attachment.is_internal)
 
     if os.path.exists(attachment.stored_path):
@@ -92,12 +126,18 @@ async def delete_file(
     await db.delete(attachment)
     await db.flush()
 
-    result2 = await db.execute(
-        select(Refund).options(selectinload(Refund.files)).where(Refund.id == refund_id)
-    )
-    updated_refund = result2.scalar_one()
+    if request_id is not None:
+        result2 = await db.execute(
+            select(RequestModel).options(selectinload(RequestModel.files)).where(RequestModel.id == request_id)
+        )
+        parent = result2.scalar_one()
+    else:
+        result2 = await db.execute(
+            select(Refund).options(selectinload(Refund.files)).where(Refund.id == refund_id)
+        )
+        parent = result2.scalar_one()
 
-    return _render_files_section(request, updated_refund, user, was_internal)
+    return _render_files_section(request, parent, user, was_internal)
 
 
 @router.get("/{file_id}/download")

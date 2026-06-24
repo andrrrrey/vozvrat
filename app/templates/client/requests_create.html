@@ -1,24 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Создать заявку на возврат{% endblock %}
+{% block title %}Создать запрос{% endblock %}
 
 {% block content %}
 <div class="p-6 md:p-8 animate-screen">
-    <!-- Back + Header -->
     <div class="flex items-center gap-4 mb-6">
-        <a href="/client/refunds" class="w-9 h-9 flex items-center justify-center bg-white rounded-full border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
+        <a href="/client/requests" class="w-9 h-9 flex items-center justify-center bg-white rounded-full border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
             <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>
         <div>
-            <h1 class="text-xl font-bold text-gray-900">Новая заявка на возврат</h1>
-            <p class="text-xs text-gray-500 mt-0.5">Заполните все необходимые поля</p>
+            <h1 class="text-xl font-bold text-gray-900">Новый запрос</h1>
+            <p class="text-xs text-gray-500 mt-0.5">Заполните то, что считаете нужным — обязательных полей нет</p>
         </div>
     </div>
 
     <div class="max-w-3xl mx-auto">
-        <form action="/api/refunds/client" method="post" enctype="multipart/form-data" id="create-form">
+        <form action="/api/requests/client" method="post" enctype="multipart/form-data" id="create-form">
             <!-- Order info -->
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Информация о заказе</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Информация</p>
                 <div class="space-y-5">
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">ID Заказа</label>
@@ -26,43 +25,37 @@
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Причина возврата *</label>
-                        <textarea name="reason" rows="3" required placeholder="Опишите причину возврата..."
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Опишите запрос</label>
+                        <textarea name="reason" rows="3" placeholder="Опишите ваш вопрос или обращение..."
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm resize-none"></textarea>
                     </div>
                 </div>
             </div>
 
-            <!-- Items -->
+            <!-- Item (optional) -->
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
-                <div class="flex items-center justify-between mb-5">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Позиция товара</p>
-                </div>
-
-                <div id="items-container" class="space-y-4">
-                    <!-- Single item: one article per request -->
-                    <div class="item-row bg-gray-50 rounded-2xl p-4">
-                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div class="col-span-2 md:col-span-1">
-                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул *</label>
-                                <input type="text" name="article[]" required placeholder="BOSCH-199-22"
-                                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Марка</label>
-                                <input type="text" name="brand[]" placeholder="Bosch"
-                                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Кол-во *</label>
-                                <input type="number" name="quantity[]" value="1" min="1" required
-                                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                            </div>
-                            <div class="col-span-2 md:col-span-3">
-                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
-                                <input type="text" name="price[]" placeholder="0.00"
-                                    class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                            </div>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Позиция товара (необязательно)</p>
+                <div class="item-row bg-gray-50 rounded-2xl p-4">
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div class="col-span-2 md:col-span-1">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул</label>
+                            <input type="text" name="article[]" placeholder="BOSCH-199-22"
+                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Марка</label>
+                            <input type="text" name="brand[]" placeholder="Bosch"
+                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Кол-во</label>
+                            <input type="number" name="quantity[]" min="1"
+                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                        </div>
+                        <div class="col-span-2 md:col-span-3">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
+                            <input type="text" name="price[]" placeholder="0.00"
+                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                         </div>
                     </div>
                 </div>
@@ -77,18 +70,16 @@
                     <p class="text-xs text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG, WEBP (до 20 МБ)</p>
                     <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" onchange="addFiles(this)">
                 </label>
-                <!-- Превью выбранных файлов -->
                 <div id="file-preview" class="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-4"></div>
                 <div id="file-errors" class="mt-2 text-xs font-medium space-y-0.5"></div>
             </div>
 
-            <!-- Buttons -->
             <div class="flex gap-3">
                 <button type="submit"
                     class="flex-1 py-3.5 bg-gray-900 text-white rounded-2xl font-bold shadow-lg hover:bg-black transition-all text-sm">
-                    Отправить заявку
+                    Отправить запрос
                 </button>
-                <a href="/client/refunds"
+                <a href="/client/requests"
                     class="flex-none px-6 py-3.5 bg-gray-100 text-gray-600 rounded-2xl font-semibold hover:bg-gray-200 transition-all text-sm">
                     Отмена
                 </a>
@@ -102,12 +93,9 @@ const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const MAX_SIZE = 20 * 1024 * 1024;
 
-// Накапливаем выбранные файлы между несколькими вызовами выбора.
 let selectedFiles = [];
 
-function extOf(name) {
-    return name.slice(name.lastIndexOf('.')).toLowerCase();
-}
+function extOf(name) { return name.slice(name.lastIndexOf('.')).toLowerCase(); }
 
 function syncInput() {
     const dt = new DataTransfer();
@@ -144,8 +132,7 @@ function renderPreview() {
     selectedFiles.forEach((f, idx) => {
         const cell = document.createElement('div');
         cell.className = 'relative group rounded-2xl overflow-hidden ring-1 ring-gray-200 bg-gray-50 aspect-square flex items-center justify-center';
-        const isImage = IMAGE_EXTS.has(extOf(f.name));
-        if (isImage) {
+        if (IMAGE_EXTS.has(extOf(f.name))) {
             const img = document.createElement('img');
             img.className = 'w-full h-full object-cover';
             img.src = URL.createObjectURL(f);

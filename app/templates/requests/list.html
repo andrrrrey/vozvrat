@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Запросы{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Запросы</h1>
+            <p class="text-sm text-gray-500 mt-1">Обращения клиентов вне процедуры возврата</p>
+        </div>
+        <div class="flex items-center gap-2">
+            {% if user.role.value in ('admin', 'staff') %}
+            <a href="/requests/create" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Создать запрос
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {% set hx_inc = "[name='status'],[name='executor_id'],[name='client_name'],[name='date'],[name='article'],[name='order_id']" %}
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Статус</label>
+                <select name="status"
+                    hx-get="/api/requests/table" hx-trigger="change"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML" hx-indicator="#table-spinner"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+                    <option value="">Все статусы</option>
+                    <option value="received" {% if current_status == 'received' %}selected{% endif %}>Получен</option>
+                    <option value="in_work" {% if current_status == 'in_work' %}selected{% endif %}>В работе</option>
+                    <option value="completed" {% if current_status == 'completed' %}selected{% endif %}>Завершён</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Исполнитель</label>
+                <select name="executor_id"
+                    hx-get="/api/requests/table" hx-trigger="change"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+                    <option value="">Все исполнители</option>
+                    {% for e in executors %}
+                    <option value="{{ e.id }}" {% if current_executor_id == e.id %}selected{% endif %}>{{ e.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Клиент</label>
+                <input type="text" name="client_name" value="{{ current_client_name }}"
+                    placeholder="Поиск по клиенту..."
+                    hx-get="/api/requests/table" hx-trigger="keyup changed delay:400ms"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Артикул</label>
+                <input type="text" name="article" value="{{ current_article }}"
+                    placeholder="Поиск по артикулу..."
+                    hx-get="/api/requests/table" hx-trigger="keyup changed delay:400ms"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">ID заказа</label>
+                <input type="text" name="order_id" value="{{ current_order_id }}"
+                    placeholder="Поиск по ID заказа..."
+                    hx-get="/api/requests/table" hx-trigger="keyup changed delay:400ms"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Дата</label>
+                <input type="date" name="date" value="{{ current_date }}"
+                    hx-get="/api/requests/table" hx-trigger="change"
+                    hx-include="{{ hx_inc }}"
+                    hx-target="#requests-results" hx-swap="innerHTML"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+            </div>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div id="requests-results" class="overflow-x-auto table-container">
+            {% include "requests/_table.html" %}
+        </div>
+        <div id="table-spinner" class="htmx-indicator p-4 text-center text-sm text-gray-400">
+            Загрузка...
+        </div>
+    </div>
+</div>
+{% endblock %}

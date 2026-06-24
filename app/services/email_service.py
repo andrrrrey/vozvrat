@@ -186,6 +186,60 @@ async def send_comment_mention_email(
     logger.info(f"Mention notification sent to {to_email} for refund {refund_display_id}")
 
 
+async def send_new_message_email(
+    db: AsyncSession,
+    to_email: str,
+    recipient_name: str,
+    author_name: str,
+    entity_display_id: str,
+    entity_dative: str,
+    message_text: str,
+    link: str,
+    from_client: bool,
+) -> None:
+    """Notify the other party about a new chat message.
+
+    `entity_dative` is the dative form of the entity noun ("возврату"/"запросу").
+    `from_client` is True when the sender is the client (recipient is staff)."""
+    smtp = await _get_smtp_settings(db)
+    if not smtp["host"]:
+        raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
+
+    if from_client:
+        subject = f"Новое сообщение от клиента по {entity_dative} {entity_display_id}"
+        intro = f"Клиент {author_name} оставил новое сообщение по {entity_dative} {entity_display_id}."
+    else:
+        subject = f"Новое сообщение по вашему {entity_dative} {entity_display_id}"
+        intro = f"{author_name} оставил новое сообщение по вашему {entity_dative} {entity_display_id}."
+
+    body = "\n".join([
+        f"Здравствуйте, {recipient_name}!",
+        "",
+        intro,
+        "",
+        "Текст сообщения:",
+        "─" * 40,
+        message_text,
+        "─" * 40,
+        "",
+        f"Открыть переписку: {link}",
+        "",
+        "С уважением,",
+        "Система управления возвратами",
+    ])
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = smtp["from_addr"] or smtp["user"]
+    msg["To"] = to_email
+    msg["Date"] = formatdate()
+    msg.set_content(body, charset="utf-8")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
+    logger.info(f"New-message notification sent to {to_email} for {entity_dative} {entity_display_id}")
+
+
 async def send_client_credentials_email(
     db: AsyncSession,
     to_email: str,

@@ -121,6 +121,20 @@
                         <span class="font-medium mono text-gray-700">{{ refund.supplier_doc_number }}</span>
                     </div>
                     {% endif %}
+                    {% if refund.is_manual %}
+                    <div class="mb-3 pb-3 border-b border-gray-100">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-gray-400 text-xs shrink-0">Номер УПД</span>
+                            <input type="text" id="upd-input" value="{{ refund.upd_number or '' }}" placeholder="УПД-000123"
+                                class="flex-1 min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs mono text-right">
+                            <button type="button" onclick="saveUpd()"
+                                class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                                Сохранить
+                            </button>
+                        </div>
+                        <span id="upd-status" class="block text-[10px] text-gray-400 mt-1 text-right"></span>
+                    </div>
+                    {% endif %}
                     {% if refund.items %}
                     {% for item in refund.items %}
                     <div class="{% if not loop.first %}mt-3 pt-3 border-t border-gray-100{% endif %}">
@@ -669,6 +683,25 @@ async function deleteFile(fileId) {
         showToast('Файл удалён');
     } catch {
         showToast('Ошибка сети', 'error');
+    }
+}
+
+async function saveUpd() {
+    const input = document.getElementById('upd-input');
+    const status = document.getElementById('upd-status');
+    if (!input) return;
+    const fd = new FormData();
+    fd.set('upd_number', input.value);
+    try {
+        const res = await fetch('/api/refunds/{{ refund.id }}/upd-number', { method: 'PATCH', body: fd });
+        if (!res.ok) {
+            status.textContent = 'Ошибка сохранения';
+            return;
+        }
+        status.textContent = 'Сохранено';
+        setTimeout(() => { if (status) status.textContent = ''; }, 2000);
+    } catch {
+        status.textContent = 'Ошибка сети';
     }
 }
 

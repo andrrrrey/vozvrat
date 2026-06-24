@@ -217,6 +217,9 @@ async def create_refund(
     client_name = client_user.full_name
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
+    upd_number = str(form.get("upd_number", "")).strip() or None
+    if not upd_number:
+        raise HTTPException(status_code=400, detail="Необходимо указать номер УПД")
     article = str(form.get("article", "")).strip()
     brand = str(form.get("brand", "")).strip() or None
     quantity_raw = form.get("quantity", "1")
@@ -244,6 +247,7 @@ async def create_refund(
         supplier_id=supplier_id,
         order_id=order_id,
         reason=reason,
+        upd_number=upd_number,
         created_by_id=user.id,
     )
     db.add(refund)
@@ -732,6 +736,29 @@ async def update_notes(
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
     refund.notes = notes
+    await db.flush()
+    return JSONResponse({"ok": True})
+
+
+@router.patch("/{refund_id}/upd-number")
+async def update_upd_number(
+    refund_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    form = await request.form()
+    upd_number = str(form.get("upd_number", "")).strip() or None
+
+    result = await db.execute(select(Refund).where(Refund.id == refund_id))
+    refund = result.scalar_one_or_none()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    refund.upd_number = upd_number
     await db.flush()
     return JSONResponse({"ok": True})
 
