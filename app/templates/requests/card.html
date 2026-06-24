@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Запрос {{ req.display_id }}{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div class="flex items-center gap-4">
+            <a href="/requests" class="w-9 h-9 flex items-center justify-center bg-white rounded-full border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors">
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </a>
+            <div>
+                <h1 class="text-xl font-bold text-gray-900 mono">{{ req.display_id }}</h1>
+                <p class="text-xs text-gray-500 mt-0.5">Создан {{ req.created_at.strftime('%d.%m.%Y %H:%M') }}</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide {{ req.status_color }}">{{ req.status_label }}</span>
+        </div>
+        {% if user.role.value == 'admin' %}
+        <button onclick="deleteRequest()" class="inline-flex items-center gap-2 px-3 py-2 bg-white text-red-600 rounded-2xl text-xs font-semibold hover:bg-red-50 shadow-sm border border-gray-200 transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Удалить
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left column -->
+        <div class="lg:col-span-8 space-y-6">
+            <!-- Info -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Информация о запросе</p>
+                <div class="flex justify-between text-xs mb-2">
+                    <span class="text-gray-400">Клиент</span>
+                    <span class="font-medium text-gray-700">{{ req.client_name }}</span>
+                </div>
+                {% if req.order_id %}
+                <div class="flex justify-between text-xs mb-2">
+                    <span class="text-gray-400">ID Заказа</span>
+                    <span class="font-medium mono text-gray-700">{{ req.order_id }}</span>
+                </div>
+                {% endif %}
+                {% if req.reason %}
+                <div class="mt-2 pt-2 border-t border-gray-100">
+                    <p class="text-[10px] text-gray-400 mb-1">Описание / причина</p>
+                    <p class="text-xs text-gray-700 whitespace-pre-wrap">{{ req.reason }}</p>
+                </div>
+                {% endif %}
+
+                <!-- Items -->
+                {% if req.items %}
+                <div class="mt-3 pt-3 border-t border-gray-100">
+                    <p class="text-[10px] text-gray-400 mb-2">Позиции</p>
+                    {% for item in req.items %}
+                    <div class="{% if not loop.first %}mt-3 pt-3 border-t border-gray-100{% endif %}">
+                        {% if item.position_id %}
+                        <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">ID позиции</span><span class="font-medium mono text-gray-700">{{ item.position_id }}</span></div>
+                        {% endif %}
+                        {% if item.article %}
+                        <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Артикул</span><span class="font-medium mono text-gray-900">{{ item.article }}</span></div>
+                        {% endif %}
+                        {% if item.brand %}
+                        <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Производитель</span><span class="font-medium text-gray-700">{{ item.brand }}</span></div>
+                        {% endif %}
+                        {% if item.quantity %}
+                        <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Количество</span><span class="font-medium text-gray-700">{{ item.quantity }} шт.</span></div>
+                        {% endif %}
+                        {% if item.price is not none %}
+                        <div class="flex justify-between text-xs"><span class="text-gray-400">Цена</span><span class="font-bold text-gray-900">{{ "{:,.2f}".format(item.price) }} ₽</span></div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- Executor assignment -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <p class="text-[10px] text-gray-400 mb-2">Исполнитель</p>
+                    {% if user.role.value in ('admin', 'staff') %}
+                    <div class="flex gap-2 items-center">
+                        <select id="executor-select" class="flex-1 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                            <option value="">— Не назначен —</option>
+                            {% for e in executors %}
+                            <option value="{{ e.id }}" {% if req.executor_id == e.id %}selected{% endif %}>{{ e.full_name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" onclick="assignExecutor()"
+                            class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                            Сохранить
+                        </button>
+                    </div>
+                    <span id="executor-status" class="block text-[10px] text-gray-400 mt-1"></span>
+                    {% else %}
+                    <p class="text-xs font-medium text-gray-700">{% if req.executor %}{{ req.executor.full_name }}{% else %}Не назначен{% endif %}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Status management -->
+            {% include "requests/_status_section.html" %}
+
+            <!-- Files -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Прикреплённые файлы</p>
+                <div id="files-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% with files = public_files, is_internal = False %}
+                    {% include "refunds/_files_list.html" %}
+                    {% endwith %}
+                </div>
+                {% if user.role.value in ('admin', 'staff') %}
+                <div class="mt-4">
+                    <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
+                        <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
+                        <input type="file" name="file" data-internal="false" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                    </label>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Internal files -->
+            {% if user.role.value in ('admin', 'staff') %}
+            <div class="bg-white rounded-2xl shadow-sm border border-amber-100 p-5">
+                <div class="flex items-center gap-2 mb-4">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <p class="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Внутренние файлы (только для сотрудников)</p>
+                </div>
+                <div id="internal-files-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% with files = internal_files, is_internal = True %}
+                    {% include "refunds/_files_list.html" %}
+                    {% endwith %}
+                </div>
+                <div class="mt-4">
+                    <label class="flex flex-col items-center justify-center border-2 border-dashed border-amber-200 rounded-2xl p-6 text-center cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-all">
+                        <svg class="w-8 h-8 text-amber-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <p class="text-xs text-amber-500 font-medium">Загрузить внутренний файл</p>
+                        <input type="file" name="file" data-internal="true" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Staff comments -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Комментарии</p>
+                <div id="comments-list" class="mb-3 h-64 overflow-y-auto border border-gray-100 rounded-xl p-2 bg-gray-50/40"
+                    hx-get="/api/requests/{{ req.id }}/comments" hx-trigger="load" hx-swap="innerHTML">
+                    <p class="text-xs text-gray-400 text-center py-4">Загрузка...</p>
+                </div>
+                <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
+                    <textarea id="comment-input" name="text" rows="2" placeholder="Добавить комментарий..."
+                        class="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"></textarea>
+                    <button type="submit"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                        Добавить
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Right: chat -->
+        <div class="lg:col-span-4">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col" style="height: 600px;">
+                <div class="flex items-center gap-2 mb-3">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex-1">Чат с клиентом</p>
+                    <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                </div>
+                <div id="chat-messages" class="flex-1 overflow-y-auto space-y-1 mb-3 pr-1"
+                    hx-get="/api/requests/{{ req.id }}/messages" hx-trigger="load, every 3s" hx-swap="innerHTML">
+                    <div class="flex items-center justify-center py-8"><p class="text-xs text-gray-400">Загрузка...</p></div>
+                </div>
+                <form id="chat-form" onsubmit="sendMessage(event)" class="space-y-2">
+                    <textarea id="chat-input" name="text" rows="2" placeholder="Написать сообщение..."
+                        class="w-full bg-gray-50 rounded-xl px-3 py-2.5 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('chat-form').dispatchEvent(new Event('submit'));}"></textarea>
+                    <button type="submit"
+                        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-black text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        Отправить
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Image lightbox -->
+<div id="image-lightbox" class="fixed inset-0 bg-black/80 z-[60] hidden items-center justify-center p-4" onclick="if(event.target===this)closeImagePreview()">
+    <div class="max-w-3xl max-h-[90vh] flex flex-col items-center gap-2">
+        <img id="image-lightbox-img" src="" class="max-w-full max-h-[80vh] rounded-2xl object-contain">
+        <p id="image-lightbox-name" class="text-white text-xs"></p>
+    </div>
+</div>
+
+<script>
+const REQUEST_ID = {{ req.id }};
+const ALLOWED_EXTS_UPLOAD = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', '.webp']);
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
+
+function openImagePreview(url, name) {
+    const box = document.getElementById('image-lightbox');
+    document.getElementById('image-lightbox-img').src = url;
+    document.getElementById('image-lightbox-name').textContent = name || '';
+    box.classList.remove('hidden');
+    box.classList.add('flex');
+}
+function closeImagePreview() {
+    const box = document.getElementById('image-lightbox');
+    box.classList.add('hidden');
+    box.classList.remove('flex');
+    document.getElementById('image-lightbox-img').src = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeImagePreview(); });
+
+// File upload
+document.addEventListener('change', function(e) {
+    if (e.target.type === 'file' && e.target.name === 'file') {
+        const input = e.target;
+        const file = input.files[0];
+        if (!file) return;
+        const isInternal = input.dataset.internal === 'true';
+        const targetId = isInternal ? 'internal-files-list' : 'files-list';
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+        if (!ALLOWED_EXTS_UPLOAD.has(ext)) { if (window.showToast) showToast('Недопустимый формат файла', 'error'); input.value = ''; return; }
+        if (file.size > MAX_UPLOAD_SIZE) { if (window.showToast) showToast('Файл превышает 20 МБ', 'error'); input.value = ''; return; }
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('internal', isInternal ? 'true' : 'false');
+        fetch('/api/files/upload-request/' + REQUEST_ID, { method: 'POST', body: formData })
+            .then(r => r.text())
+            .then(html => {
+                const target = document.getElementById(targetId);
+                if (target) target.innerHTML = html;
+                input.value = '';
+                if (window.showToast) showToast('Файл загружен успешно');
+            })
+            .catch(() => { if (window.showToast) showToast('Ошибка загрузки файла', 'error'); });
+    }
+});
+
+async function deleteFile(fileId) {
+    if (!confirm('Удалить файл?')) return;
+    const row = document.getElementById('file-row-' + fileId);
+    const container = row ? row.closest('#internal-files-list, #files-list') : document.getElementById('files-list');
+    try {
+        const res = await fetch('/api/files/' + fileId, { method: 'DELETE' });
+        if (!res.ok) { const err = await res.json(); showToast('Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error'); return; }
+        const html = await res.text();
+        if (container) container.innerHTML = html;
+        showToast('Файл удалён');
+    } catch { showToast('Ошибка сети', 'error'); }
+}
+
+// Chat
+function scrollChatToBottom() { const el = document.getElementById('chat-messages'); if (el) el.scrollTop = el.scrollHeight; }
+async function sendMessage(e) {
+    e.preventDefault();
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const data = new FormData();
+    data.set('visibility', 'all');
+    data.set('text', text);
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID + '/messages', { method: 'POST', body: data });
+        if (!res.ok) { const err = await res.json(); showToast('Ошибка: ' + (err.detail || 'Не удалось отправить'), 'error'); return; }
+        document.getElementById('chat-messages').innerHTML = await res.text();
+        input.value = '';
+        scrollChatToBottom();
+    } catch { showToast('Ошибка сети', 'error'); }
+}
+document.body.addEventListener('htmx:beforeSwap', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
+        const el = evt.detail.target;
+        el._wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    }
+});
+document.body.addEventListener('htmx:afterSettle', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'comments-list') {
+        evt.detail.target.scrollTop = evt.detail.target.scrollHeight;
+    }
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'chat-messages') {
+        const el = evt.detail.target;
+        if (el._wasAtBottom !== false) scrollChatToBottom();
+    }
+});
+
+async function sendComment(e) {
+    e.preventDefault();
+    const input = document.getElementById('comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const data = new FormData();
+    data.set('text', text);
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID + '/comments', { method: 'POST', body: data });
+        if (!res.ok) { const err = await res.json(); showToast('Ошибка: ' + (err.detail || 'Не удалось добавить комментарий'), 'error'); return; }
+        const list = document.getElementById('comments-list');
+        list.innerHTML = await res.text();
+        list.scrollTop = list.scrollHeight;
+        input.value = '';
+    } catch { showToast('Ошибка сети', 'error'); }
+}
+
+async function assignExecutor() {
+    const sel = document.getElementById('executor-select');
+    const status = document.getElementById('executor-status');
+    const fd = new FormData();
+    fd.set('executor_id', sel.value);
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID + '/executor', { method: 'POST', body: fd });
+        if (!res.ok) { status.textContent = 'Ошибка сохранения'; return; }
+        status.textContent = 'Сохранено';
+        setTimeout(() => { if (status) status.textContent = ''; }, 2000);
+    } catch { status.textContent = 'Ошибка сети'; }
+}
+
+async function deleteRequest() {
+    if (!confirm('Удалить запрос безвозвратно?')) return;
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID, { method: 'DELETE' });
+        if (!res.ok) { const err = await res.json(); showToast('Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error'); return; }
+        window.location = '/requests';
+    } catch { showToast('Ошибка сети', 'error'); }
+}
+</script>
+{% endblock %}

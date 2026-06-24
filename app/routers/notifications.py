@@ -43,6 +43,7 @@ async def get_unread_messages_count(user: User, db: AsyncSession) -> int:
         .where(
             _unread_condition(user.id),
             Message.user_id != user.id,
+            Message.refund_id.isnot(None),
         )
     )
     if user.role.value == "client":
@@ -58,18 +59,43 @@ async def get_unread_messages_count(user: User, db: AsyncSession) -> int:
     return (await db.execute(q)).scalar() or 0
 
 
+async def get_unread_requests_count(user: User, db: AsyncSession) -> int:
+    """Count unread request messages for the user (used for 'Запросы' nav badge)."""
+    from app.models.request import Request as RequestModel
+    q = (
+        select(func.count(Message.id))
+        .where(
+            _unread_condition(user.id),
+            Message.user_id != user.id,
+            Message.request_id.isnot(None),
+        )
+    )
+    if user.role.value == "client":
+        q = q.where(
+            Message.visibility == MessageVisibility.all,
+            exists().where(
+                and_(
+                    RequestModel.id == Message.request_id,
+                    RequestModel.client_user_id == user.id,
+                )
+            ),
+        )
+    return (await db.execute(q)).scalar() or 0
+
+
 async def get_unread_total(user: User, db: AsyncSession) -> int:
     """Total unread count: messages + unread email notifications (for staff/admin, used for bell icon)."""
     msg_count = await get_unread_messages_count(user, db)
+    req_count = await get_unread_requests_count(user, db)
 
     if user.role.value != "client":
         from app.models.mail_notification import MailNotification
         email_count = (await db.execute(
             select(func.count(MailNotification.id)).where(MailNotification.is_read == False)
         )).scalar() or 0
-        return msg_count + email_count
+        return msg_count + req_count + email_count
 
-    return msg_count
+    return msg_count + req_count
 
 
 async def get_unread_per_refund(user: User, db: AsyncSession) -> dict[int, int]:
@@ -79,6 +105,7 @@ async def get_unread_per_refund(user: User, db: AsyncSession) -> dict[int, int]:
         .where(
             _unread_condition(user.id),
             Message.user_id != user.id,
+            Message.refund_id.isnot(None),
         )
         .group_by(Message.refund_id)
     )
@@ -96,12 +123,56 @@ async def get_unread_per_refund(user: User, db: AsyncSession) -> dict[int, int]:
     return {row[0]: row[1] for row in result.all()}
 
 
+async def get_unread_per_request(user: User, db: AsyncSession) -> dict[int, int]:
+    """Per-request unread message counts."""
+    from app.models.request import Request as RequestModel
+    q = (
+        select(Message.request_id, func.count(Message.id))
+        .where(
+            _unread_condition(user.id),
+            Message.user_id != user.id,
+            Message.request_id.isnot(None),
+        )
+        .group_by(Message.request_id)
+    )
+    if user.role.value == "client":
+        q = q.where(
+            Message.visibility == MessageVisibility.all,
+            exists().where(
+                and_(
+                    RequestModel.id == Message.request_id,
+                    RequestModel.client_user_id == user.id,
+                )
+            ),
+        )
+    result = await db.execute(q)
+    return {row[0]: row[1] for row in result.all()}
+
+
 async def mark_refund_read(refund_id: int, user_id: int, db: AsyncSession) -> None:
     """Insert MessageRead rows for all messages in a refund not yet read by this user."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     msg_ids_result = await db.execute(
         select(Message.id).where(Message.refund_id == refund_id)
+    )
+    msg_ids = msg_ids_result.scalars().all()
+    if not msg_ids:
+        return
+
+    stmt = pg_insert(MessageRead).values(
+        [{"message_id": mid, "user_id": user_id} for mid in msg_ids]
+    ).on_conflict_do_nothing()
+    await db.execute(stmt)
+    await db.commit()
+
+
+async def mark_request_read(request_id: int, user_id: int, db: AsyncSession) -> None:
+    """Insert MessageRead rows for all messages in a request not yet read by this user."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    msg_ids_result = await db.execute(
+        select(Message.id).where(Message.request_id == request_id)
     )
     msg_ids = msg_ids_result.scalars().all()
     if not msg_ids:
@@ -137,6 +208,25 @@ async def nav_badge(request: Request, db: AsyncSession = Depends(get_db)):
     return HTMLResponse('<span id="nav-unread-badge"></span>')
 
 
+@router.get("/requests-nav-badge", response_class=HTMLResponse)
+async def requests_nav_badge(request: Request, db: AsyncSession = Depends(get_db)):
+    """HTMX partial: badge with unread message count for 'Запросы' nav item."""
+    try:
+        user = await get_current_user(request, db)
+    except Exception:
+        return HTMLResponse("")
+    count = await get_unread_requests_count(user, db)
+    if count > 0:
+        label = str(count) if count < 100 else "99+"
+        return HTMLResponse(
+            f'<span id="nav-requests-badge" '
+            f'class="ml-auto bg-red-500 text-white text-[10px] font-bold '
+            f'rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">'
+            f'{label}</span>'
+        )
+    return HTMLResponse('<span id="nav-requests-badge"></span>')
+
+
 @router.get("/bell-count", response_class=HTMLResponse)
 async def bell_count(request: Request, db: AsyncSession = Depends(get_db)):
     """HTMX partial: badge number shown on bell icon."""
@@ -170,7 +260,11 @@ async def recent_notifications(request: Request, db: AsyncSession = Depends(get_
 
     q = (
         select(Message)
-        .options(selectinload(Message.user), selectinload(Message.refund))
+        .options(
+            selectinload(Message.user),
+            selectinload(Message.refund),
+            selectinload(Message.request),
+        )
         .where(
             _unread_condition(user.id),
             Message.user_id != user.id,

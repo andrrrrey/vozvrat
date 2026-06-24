@@ -60,11 +60,21 @@ def guess_media_type(filename: str) -> str:
 
 async def save_file(
     file: UploadFile,
-    refund_id: int,
+    refund_id: Optional[int],
     db: AsyncSession,
     uploaded_by_id: Optional[int] = None,
     is_internal: bool = False,
+    request_id: Optional[int] = None,
 ) -> FileAttachment:
+    """Save an uploaded file attached either to a refund or to a request.
+
+    Exactly one of refund_id / request_id must be set."""
+    if (refund_id is None) == (request_id is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Файл должен быть привязан либо к возврату, либо к запросу",
+        )
+
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -81,11 +91,12 @@ async def save_file(
             detail=f"Файл слишком большой. Максимум {settings.MAX_UPLOAD_SIZE_MB} МБ",
         )
 
-    refund_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund_id}"
-    refund_dir.mkdir(parents=True, exist_ok=True)
+    subdir = f"refund_{refund_id}" if refund_id is not None else f"request_{request_id}"
+    target_dir = Path(settings.UPLOAD_DIR) / subdir
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     unique_name = build_stored_name(file.filename)
-    stored_path = str(refund_dir / unique_name)
+    stored_path = str(target_dir / unique_name)
 
     with open(stored_path, "wb") as f:
         f.write(content)
@@ -94,6 +105,7 @@ async def save_file(
 
     attachment = FileAttachment(
         refund_id=refund_id,
+        request_id=request_id,
         filename=file.filename or unique_name,
         stored_path=stored_path,
         file_type=file_type,
@@ -104,7 +116,7 @@ async def save_file(
     db.add(attachment)
     await db.flush()
     await db.refresh(attachment)
-    logger.info(f"Saved file {file.filename} for refund {refund_id}, type={file_type}")
+    logger.info(f"Saved file {file.filename} for {subdir}, type={file_type}")
     return attachment
 
 
@@ -132,13 +144,25 @@ async def get_file_for_download(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Нет доступа к этому файлу",
             )
-        refund_result = await db.execute(
-            select(Refund).where(
-                Refund.id == attachment.refund_id,
-                Refund.client_user_id == user_id
+        owned = False
+        if attachment.refund_id is not None:
+            refund_result = await db.execute(
+                select(Refund).where(
+                    Refund.id == attachment.refund_id,
+                    Refund.client_user_id == user_id,
+                )
             )
-        )
-        if not refund_result.scalar_one_or_none():
+            owned = refund_result.scalar_one_or_none() is not None
+        elif attachment.request_id is not None:
+            from app.models.request import Request
+            req_result = await db.execute(
+                select(Request).where(
+                    Request.id == attachment.request_id,
+                    Request.client_user_id == user_id,
+                )
+            )
+            owned = req_result.scalar_one_or_none() is not None
+        if not owned:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Нет доступа к этому файлу",

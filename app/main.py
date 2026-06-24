@@ -11,7 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import engine, AsyncSessionLocal
-from app.routers import auth, refunds, suppliers, users, files, pages, messages, notifications, emails
+from app.routers import auth, refunds, requests, suppliers, users, files, pages, messages, notifications, emails
 from app.routers import settings as settings_router
 
 logging.basicConfig(
@@ -126,6 +126,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # Routers
 app.include_router(auth.router)
 app.include_router(refunds.router)
+app.include_router(requests.router)
 app.include_router(suppliers.router)
 app.include_router(users.router)
 app.include_router(files.router)

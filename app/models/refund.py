@@ -63,6 +63,9 @@ class Refund(Base):
     supplier_email_sent_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # УПД (универсальный передаточный документ) — обязателен для ручных возвратов,
+    # попадает в выгрузку 1С.
+    upd_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Relationships
     client_user: Mapped[Optional["User"]] = relationship(
@@ -81,6 +84,11 @@ class Refund(Base):
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="refund", cascade="all, delete-orphan"
     )
+
+    @property
+    def is_manual(self) -> bool:
+        """Ручной возврат (создан вручную, не импортирован из письма)."""
+        return self.source == RefundSource.manual
 
     @property
     def status_label(self) -> str:

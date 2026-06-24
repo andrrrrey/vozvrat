@@ -101,12 +101,84 @@ async def send_message(
     # Mark new message as read by sender immediately
     await mark_refund_read(refund_id, user.id, db)
 
+    # Notify the other party (client <-> staff) by email — best-effort.
+    if visibility == MessageVisibility.all:
+        await _notify_new_chat_message(refund_id, user, text, request, db)
+
     messages = await _load_messages(refund_id, user.role.value, db)
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "refunds/_chat_messages.html",
         {"request": request, "messages": messages, "user": user},
     )
+    # Tell the layout to refresh unread badges immediately.
+    response.headers["HX-Trigger"] = "refreshBadges"
+    return response
+
+
+async def _notify_new_chat_message(
+    refund_id: int,
+    author,
+    text: str,
+    request: Request,
+    db: AsyncSession,
+) -> None:
+    """Email the other side of a refund conversation about a new message. Never raises."""
+    from app.models.user import User, UserRole
+    from app.services.email_service import send_new_message_email
+
+    try:
+        result = await db.execute(
+            select(Refund)
+            .options(selectinload(Refund.client_user), selectinload(Refund.created_by))
+            .where(Refund.id == refund_id)
+        )
+        refund = result.scalar_one_or_none()
+        if not refund:
+            return
+
+        base_url = str(request.base_url).rstrip("/") if request else ""
+        author_is_client = author.role.value == "client"
+
+        if author_is_client:
+            # Notify staff: the creator if they are staff/admin, otherwise all active staff/admin.
+            recipients: list = []
+            creator = refund.created_by
+            if creator and creator.role in (UserRole.admin, UserRole.staff) and creator.is_active and creator.email:
+                recipients = [creator]
+            else:
+                staff_result = await db.execute(
+                    select(User).where(
+                        User.role.in_([UserRole.admin, UserRole.staff]),
+                        User.is_active == True,
+                    )
+                )
+                recipients = [u for u in staff_result.scalars().all() if u.email]
+            link = f"{base_url}/refunds/{refund_id}"
+            for recipient in recipients:
+                try:
+                    await send_new_message_email(
+                        db, to_email=recipient.email, recipient_name=recipient.full_name,
+                        author_name=author.full_name, entity_display_id=refund.display_id,
+                        entity_dative="возврату", message_text=text, link=link, from_client=True,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send new-message email to {recipient.email}: {e}")
+        else:
+            # Staff/admin wrote — notify the client.
+            client = refund.client_user
+            if client and client.email:
+                link = f"{base_url}/client/refunds/{refund_id}"
+                try:
+                    await send_new_message_email(
+                        db, to_email=client.email, recipient_name=client.full_name,
+                        author_name=author.full_name, entity_display_id=refund.display_id,
+                        entity_dative="возврату", message_text=text, link=link, from_client=False,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send new-message email to {client.email}: {e}")
+    except Exception as e:
+        logger.warning(f"_notify_new_chat_message failed for refund {refund_id}: {e}")
 
 
 async def _load_comments(refund_id: int, db: AsyncSession) -> list[Message]:

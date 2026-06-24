@@ -52,11 +52,11 @@
     </div>
     {% endif %}
     {% for msg in messages %}
-    <a href="/refunds/{{ msg.refund_id }}"
+    <a href="{% if msg.request_id %}/requests/{{ msg.request_id }}{% else %}/refunds/{{ msg.refund_id }}{% endif %}"
         class="flex flex-col gap-0.5 px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0 cursor-pointer">
         <div class="flex items-center justify-between gap-2">
             <span class="text-xs font-bold text-gray-900 mono">
-                {% if msg.refund %}{{ msg.refund.display_id }}{% else %}#{{ msg.refund_id }}{% endif %}
+                {% if msg.request %}{{ msg.request.display_id }}{% elif msg.refund %}{{ msg.refund.display_id }}{% else %}#{{ msg.refund_id or msg.request_id }}{% endif %}
             </span>
             <span class="text-[10px] text-gray-400 shrink-0">
                 {{ msg.created_at.strftime('%d.%m %H:%M') }}
