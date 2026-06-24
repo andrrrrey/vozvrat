@@ -20,11 +20,6 @@
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Информация</p>
                 <div class="space-y-5">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">ID Заказа</label>
-                        <input type="text" name="order_id" placeholder="#ORD-55441"
-                            class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
-                    </div>
-                    <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Опишите запрос</label>
                         <textarea name="reason" rows="3" placeholder="Опишите ваш вопрос или обращение..."
                             class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm resize-none"></textarea>
@@ -36,8 +31,8 @@
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Позиция товара (необязательно)</p>
                 <div class="item-row bg-gray-50 rounded-2xl p-4">
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <div class="col-span-2 md:col-span-1">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
                             <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Артикул</label>
                             <input type="text" name="article[]" placeholder="BOSCH-199-22"
                                 class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm mono">
@@ -45,16 +40,6 @@
                         <div>
                             <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Марка</label>
                             <input type="text" name="brand[]" placeholder="Bosch"
-                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Кол-во</label>
-                            <input type="number" name="quantity[]" min="1"
-                                class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                        </div>
-                        <div class="col-span-2 md:col-span-3">
-                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Цена за шт. (₽)</label>
-                            <input type="text" name="price[]" placeholder="0.00"
                                 class="w-full bg-white rounded-xl px-3 py-2.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                         </div>
                     </div>
