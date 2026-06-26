@@ -191,6 +191,10 @@ async def create_request(
             await save_file(value, None, db, uploaded_by_id=user.id, request_id=req.id)
 
     await db.flush()
+
+    # Уведомить клиента о новом запросе, созданном сотрудником.
+    await _notify_client_new_request(req, request, db)
+
     return RedirectResponse(url=f"/requests/{req.id}", status_code=302)
 
 
@@ -287,6 +291,68 @@ async def delete_request(
 
     await db.delete(req)
     await db.flush()
+    return JSONResponse({"ok": True})
+
+
+async def _notify_client_new_request(req: RequestModel, request: Request, db: AsyncSession) -> None:
+    """Письмо клиенту о созданном для него запросе. Никогда не падает."""
+    from app.services.email_service import send_new_request_email
+    try:
+        if not req.client_user_id:
+            return
+        client = (await db.execute(select(User).where(User.id == req.client_user_id))).scalar_one_or_none()
+        if not client or not client.email:
+            return
+        base_url = str(request.base_url).rstrip("/") if request else ""
+        link = f"{base_url}/client/requests/{req.id}"
+        await send_new_request_email(
+            db, client.email, client.full_name, req.display_id, req.subject_label, link
+        )
+    except Exception as e:
+        logger.warning(f"_notify_client_new_request failed for request {req.id}: {e}")
+
+
+@router.post("/{request_id}/client")
+async def assign_client(
+    request_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Назначить/сменить клиента у запроса (для запросов, созданных без клиента)."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    form = await request.form()
+    client_user_id_raw = form.get("client_user_id", "")
+    client_user_id = int(client_user_id_raw) if str(client_user_id_raw).strip().isdigit() else None
+
+    result = await db.execute(select(RequestModel).where(RequestModel.id == request_id))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+
+    previous_client_id = req.client_user_id
+
+    if client_user_id:
+        client_result = await db.execute(
+            select(User).where(User.id == client_user_id, User.role == UserRole.client)
+        )
+        client_user = client_result.scalar_one_or_none()
+        if not client_user:
+            raise HTTPException(status_code=404, detail="Клиент не найден")
+        req.client_user_id = client_user.id
+        req.client_name = client_user.full_name
+    else:
+        req.client_user_id = None
+        req.client_name = "Без клиента"
+
+    await db.flush()
+
+    # Если клиент назначен впервые (раньше его не было) — уведомить о запросе.
+    if client_user_id and previous_client_id != client_user_id:
+        await _notify_client_new_request(req, request, db)
+
     return JSONResponse({"ok": True})
 
 

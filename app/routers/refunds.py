@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.refund_item import RefundItem
 from app.models.supplier import Supplier
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.refund import RefundResponse, RefundStatusUpdate
 from app.services.auth import get_current_user
 from app.services.file_service import save_file
@@ -305,8 +305,43 @@ async def create_refund(
 
     await db.flush()
 
+    # Если это первый возврат для клиента — отправить ему логин и пароль на почту.
+    await _send_credentials_if_first_refund(db, client_user)
+
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"/refunds/{refund.id}", status_code=302)
+
+
+async def _send_credentials_if_first_refund(db: AsyncSession, client_user: User) -> None:
+    """Когда у клиента появляется первый возврат, выслать ему данные для входа.
+
+    Аккаунт клиента мог быть создан сотрудником без отправки пароля, поэтому при
+    первом возврате генерируем новый пароль и отправляем письмо. Никогда не падает —
+    создание возврата не должно срываться из-за проблем с почтой.
+    """
+    if client_user is None or client_user.role != UserRole.client or not client_user.email:
+        return
+    try:
+        count = (
+            await db.execute(
+                select(func.count(Refund.id)).where(Refund.client_user_id == client_user.id)
+            )
+        ).scalar() or 0
+        # Этот возврат уже сохранён, поэтому "первый" == ровно один возврат.
+        if count != 1:
+            return
+
+        import secrets
+        from app.services.auth import hash_password
+        from app.services.email_service import send_client_credentials_email
+
+        new_password = secrets.token_urlsafe(10)
+        client_user.password_hash = hash_password(new_password)
+        await db.flush()
+        await send_client_credentials_email(db, client_user.email, client_user.full_name, new_password)
+        logger.info(f"First-refund credentials sent to client id={client_user.id} email={client_user.email}")
+    except Exception as e:
+        logger.warning(f"Could not send first-refund credentials to {getattr(client_user, 'email', '?')}: {e}")
 
 
 @router.get("/{refund_id}", response_model=RefundResponse)
