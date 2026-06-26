@@ -1,9 +1,11 @@
 {% if messages %}
 <div class="space-y-3">
     {% for msg in messages %}
-    <div class="chat-item {% if msg.user_id == user.id %}flex flex-col items-end{% else %}flex flex-col items-start{% endif %}"
+    {# Выравнивание по стороне роли относительно зрителя: свои (та же сторона) справа/чёрные, чужие слева/серые #}
+    {% set own_side = (msg.user.role.value in ('admin', 'staff')) == (user.role.value in ('admin', 'staff')) %}
+    <div class="chat-item {% if own_side %}flex flex-col items-end{% else %}flex flex-col items-start{% endif %}"
         data-search="{{ (msg.text ~ ' ' ~ msg.user.full_name) | lower | e }}">
-        <div class="{% if msg.user_id == user.id %}bg-black text-white{% else %}bg-gray-100 text-gray-800{% endif %} rounded-2xl px-3.5 py-2.5 max-w-[85%]">
+        <div class="{% if own_side %}bg-black text-white{% else %}bg-gray-100 text-gray-800{% endif %} rounded-2xl px-3.5 py-2.5 max-w-[85%]">
             <p class="text-xs leading-relaxed whitespace-pre-wrap break-words">{{ msg.text }}</p>
         </div>
         <div class="flex items-center gap-1.5 mt-1 px-1">

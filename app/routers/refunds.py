@@ -133,6 +133,38 @@ async def export_1c(
     )
 
 
+@router.post("/export-1c/ftp")
+async def export_1c_ftp(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    single: Optional[int] = None,
+):
+    """Build the 1C XLSX export and push it to the configured FTP (folder Vozvrat1C/OUT)."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    query = select(Refund).options(
+        selectinload(Refund.supplier),
+        selectinload(Refund.items),
+    ).order_by(Refund.created_at.desc())
+    if single:
+        query = query.where(Refund.id == single)
+    result = await db.execute(query)
+    refunds = result.scalars().all()
+
+    from app.services.ftp_service import upload_1c_xlsx
+    try:
+        remote_path = await upload_1c_xlsx(db, refunds)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.warning(f"FTP export failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Ошибка отправки по FTP: {e}")
+
+    return JSONResponse({"ok": True, "path": remote_path})
+
+
 @router.get("/table")
 async def refunds_table_partial(
     request: Request,

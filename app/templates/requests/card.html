@@ -29,6 +29,12 @@
             <!-- Info -->
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Информация о запросе</p>
+                {% if req.subject_label %}
+                <div class="flex justify-between text-xs mb-2">
+                    <span class="text-gray-400">Тема</span>
+                    <span class="font-medium text-gray-700">{{ req.subject_label }}</span>
+                </div>
+                {% endif %}
                 <div class="flex justify-between text-xs mb-2">
                     <span class="text-gray-400">Клиент</span>
                     <span class="font-medium text-gray-700">{{ req.client_name }}</span>

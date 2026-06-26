@@ -24,7 +24,18 @@ def _templates():
 
 
 def _render_files_section(request, refund, user, is_internal):
-    """Render the files partial for either the public or the internal section."""
+    """Render the files partial for either the public or the internal section.
+
+    Клиент видит только не-внутренние файлы и свой клиентский партиал
+    (с кнопками просмотра/скачивания/удаления своих файлов).
+    """
+    if user.role.value == "client":
+        files = [f for f in refund.files if not f.is_internal]
+        files.sort(key=lambda f: f.id)
+        return _templates().TemplateResponse(
+            "client/_files_list.html",
+            {"request": request, "files": files, "user": user},
+        )
     files = [f for f in refund.files if bool(f.is_internal) == is_internal]
     files.sort(key=lambda f: f.id)
     return _templates().TemplateResponse(
@@ -105,8 +116,6 @@ async def delete_file(
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_current_user(request, db)
-    if user.role.value not in ("admin", "staff"):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
 
     result = await db.execute(select(FileAttachment).where(FileAttachment.id == file_id))
     attachment = result.scalar_one_or_none()
@@ -116,6 +125,24 @@ async def delete_file(
     refund_id = attachment.refund_id
     request_id = attachment.request_id
     was_internal = bool(attachment.is_internal)
+
+    # Клиент может удалять только свои не-внутренние файлы на своих возврате/запросе.
+    if user.role.value == "client":
+        if was_internal:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
+        owner_id = None
+        if request_id is not None:
+            owner_result = await db.execute(
+                select(RequestModel.client_user_id).where(RequestModel.id == request_id)
+            )
+            owner_id = owner_result.scalar_one_or_none()
+        elif refund_id is not None:
+            owner_result = await db.execute(
+                select(Refund.client_user_id).where(Refund.id == refund_id)
+            )
+            owner_id = owner_result.scalar_one_or_none()
+        if owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
 
     if os.path.exists(attachment.stored_path):
         try:

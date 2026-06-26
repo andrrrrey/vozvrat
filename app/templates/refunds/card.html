@@ -45,11 +45,11 @@
             </button>
             {% endif %}
             <!-- Export to 1C -->
-            <a href="/api/refunds/export-1c?single={{ refund.id }}"
+            <button type="button" onclick="openExport1cModal({{ refund.id }})"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-gray-600 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                 Выгрузить для 1С
-            </a>
+            </button>
             {% endif %}
             {% if user.role.value == 'admin' %}
             <button
@@ -90,7 +90,7 @@
                             {% endif %}
                         </div>
                         <form id="assign-supplier-form" class="flex gap-2 items-center">
-                            <select id="assign-supplier-select" class="flex-1 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                            <select id="assign-supplier-select" class="flex-1 min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
                                 <option value="">— Не выбран —</option>
                                 {% for s in suppliers %}
                                 <option value="{{ s.id }}" {% if refund.supplier_id == s.id %}selected{% endif %}>{{ s.name }}</option>

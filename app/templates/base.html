@@ -114,10 +114,10 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                     Почта
                 </a>
-                <a href="/api/refunds/export-1c" class="flex items-center gap-3 px-3 py-2 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors">
+                <button type="button" onclick="openExport1cModal()" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-600 hover:bg-gray-100 transition-colors text-left">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     Выгрузка в 1С
-                </a>
+                </button>
                 {% if user.role.value == 'admin' %}
                 <a href="/users" class="flex items-center gap-3 px-3 py-2 rounded-xl {% if request.url.path == '/users' %}bg-black text-white{% else %}text-gray-600 hover:bg-gray-100{% endif %} transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
@@ -221,7 +221,88 @@
     </main>
 </div>
 
+{% if user and user.role.value in ('admin', 'staff') %}
+<!-- Export to 1C modal -->
+<div id="export-1c-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] hidden items-center justify-center p-4"
+    onclick="if(event.target===this)closeExport1cModal()">
+    <div class="bg-white rounded-[32px] shadow-xl w-full max-w-sm p-8">
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="text-lg font-bold text-gray-900">Выгрузка в 1С</h2>
+            <button onclick="closeExport1cModal()" class="w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <p id="export-1c-subtitle" class="text-xs text-gray-400 mb-6">Выберите способ выгрузки данных о возвратах.</p>
+        <div class="space-y-3">
+            <button type="button" onclick="export1cDownload()"
+                class="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl hover:bg-gray-100 transition-colors text-left">
+                <svg class="w-5 h-5 text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                <span class="text-sm font-semibold text-gray-800">Скачать файлом</span>
+            </button>
+            <button type="button" id="export-1c-ftp-btn" onclick="export1cFtp()"
+                class="w-full flex items-center gap-3 px-4 py-3 bg-gray-900 text-white rounded-2xl hover:bg-black transition-colors text-left">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                <span class="text-sm font-semibold">Отправить по FTP</span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <script>
+let export1cSingleId = null;
+
+function openExport1cModal(singleId) {
+    export1cSingleId = (singleId !== undefined && singleId !== null) ? singleId : null;
+    const modal = document.getElementById('export-1c-modal');
+    if (!modal) return;
+    const subtitle = document.getElementById('export-1c-subtitle');
+    if (subtitle) {
+        subtitle.textContent = export1cSingleId
+            ? 'Выберите способ выгрузки этого возврата.'
+            : 'Выберите способ выгрузки данных о возвратах.';
+    }
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeExport1cModal() {
+    const modal = document.getElementById('export-1c-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function export1cQuery() {
+    return export1cSingleId ? ('?single=' + encodeURIComponent(export1cSingleId)) : '';
+}
+
+function export1cDownload() {
+    window.location.href = '/api/refunds/export-1c' + export1cQuery();
+    closeExport1cModal();
+}
+
+async function export1cFtp() {
+    const btn = document.getElementById('export-1c-ftp-btn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/refunds/export-1c/ftp' + export1cQuery(), { method: 'POST' });
+        if (!res.ok) {
+            let detail = 'Не удалось отправить';
+            try { const err = await res.json(); detail = err.detail || detail; } catch {}
+            showToast('Ошибка: ' + detail, 'error');
+        } else {
+            const data = await res.json();
+            showToast('Файл отправлен по FTP: ' + (data.path || 'Vozvrat1C/OUT'));
+            closeExport1cModal();
+        }
+    } catch {
+        showToast('Ошибка сети', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 function showToast(message, type='success') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');

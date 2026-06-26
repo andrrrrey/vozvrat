@@ -13,7 +13,7 @@ from sqlalchemy import select, func, and_, exists
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.request import Request as RequestModel, RequestItem, RequestStatus
+from app.models.request import Request as RequestModel, RequestItem, RequestStatus, RequestSubject
 from app.models.message import Message, MessageVisibility
 from app.models.user import User, UserRole
 from app.services.auth import get_current_user
@@ -134,12 +134,23 @@ async def create_request(
     executor_id_raw = form.get("executor_id")
     executor_id = int(executor_id_raw) if executor_id_raw and str(executor_id_raw).isdigit() else None
 
-    if not client_user_id:
-        raise HTTPException(status_code=400, detail="Необходимо выбрать аккаунт клиента")
-    client_result = await db.execute(select(User).where(User.id == client_user_id))
-    client_user = client_result.scalar_one_or_none()
+    # Тема обязательна.
+    subject_raw = str(form.get("subject", "")).strip()
+    try:
+        subject = RequestSubject(subject_raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Необходимо выбрать тему запроса")
+
+    # Клиент необязателен: если выбран — используем его данные, иначе ставим заглушку.
+    client_user = None
+    if client_user_id:
+        client_result = await db.execute(select(User).where(User.id == client_user_id))
+        client_user = client_result.scalar_one_or_none()
+        if not client_user:
+            raise HTTPException(status_code=400, detail="Клиент не найден")
     if not client_user:
-        raise HTTPException(status_code=400, detail="Клиент не найден")
+        client_user_id = None
+    client_name = client_user.full_name if client_user else "Без клиента"
 
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
@@ -152,7 +163,8 @@ async def create_request(
     req = RequestModel(
         display_id=display_id,
         status=RequestStatus.received,
-        client_name=client_user.full_name,
+        subject=subject,
+        client_name=client_name,
         client_user_id=client_user_id,
         executor_id=executor_id,
         order_id=order_id,
@@ -196,6 +208,13 @@ async def create_client_request(
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
 
+    # Тема обязательна.
+    subject_raw = str(form.get("subject", "")).strip()
+    try:
+        subject = RequestSubject(subject_raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Необходимо выбрать тему запроса")
+
     articles = form.getlist("article[]")
     brands = form.getlist("brand[]")
     quantities = form.getlist("quantity[]")
@@ -206,6 +225,7 @@ async def create_client_request(
     req = RequestModel(
         display_id=display_id,
         status=RequestStatus.received,
+        subject=subject,
         client_name=user.full_name,
         client_user_id=user.id,
         order_id=order_id,
@@ -475,21 +495,18 @@ async def _notify_new_request_message(request_id: int, author, text: str, reques
         author_is_client = author.role.value == "client"
 
         if author_is_client:
-            # Notify the executor if assigned, else the creator (if staff), else all active staff/admin.
+            # По запросам уведомляем только исполнителя; если его нет — только админов.
             recipients: list = []
             if req.executor and req.executor.is_active and req.executor.email:
                 recipients = [req.executor]
-            elif req.created_by and req.created_by.role in (UserRole.admin, UserRole.staff) \
-                    and req.created_by.is_active and req.created_by.email:
-                recipients = [req.created_by]
             else:
-                staff_result = await db.execute(
+                admin_result = await db.execute(
                     select(User).where(
-                        User.role.in_([UserRole.admin, UserRole.staff]),
+                        User.role == UserRole.admin,
                         User.is_active == True,
                     )
                 )
-                recipients = [u for u in staff_result.scalars().all() if u.email]
+                recipients = [u for u in admin_result.scalars().all() if u.email]
             link = f"{base_url}/requests/{request_id}"
             for recipient in recipients:
                 try:

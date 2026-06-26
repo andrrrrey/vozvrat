@@ -13,6 +13,21 @@ class RequestStatus(str, enum.Enum):
     completed = "completed"
 
 
+class RequestSubject(str, enum.Enum):
+    delivery = "delivery"
+    rejection = "rejection"
+    site = "site"
+    free = "free"
+
+
+SUBJECT_LABELS = {
+    RequestSubject.delivery: "Срок поставки",
+    RequestSubject.rejection: "Отказ",
+    RequestSubject.site: "Вопрос по работе сайта",
+    RequestSubject.free: "Свободная тема",
+}
+
+
 STATUS_LABELS = {
     RequestStatus.received: "Получен",
     RequestStatus.in_work: "В работе",
@@ -38,6 +53,9 @@ class Request(Base):
     display_id: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
     status: Mapped[RequestStatus] = mapped_column(
         Enum(RequestStatus), nullable=False, default=RequestStatus.received
+    )
+    subject: Mapped[Optional[RequestSubject]] = mapped_column(
+        Enum(RequestSubject), nullable=True
     )
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
     client_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -65,6 +83,12 @@ class Request(Base):
     @property
     def status_label(self) -> str:
         return STATUS_LABELS.get(self.status, self.status.value)
+
+    @property
+    def subject_label(self) -> Optional[str]:
+        if self.subject is None:
+            return None
+        return SUBJECT_LABELS.get(self.subject, self.subject.value)
 
     @property
     def status_color(self) -> str:
