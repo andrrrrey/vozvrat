@@ -620,11 +620,15 @@ async def create_request_page(request: Request, db: AsyncSession = Depends(get_d
     )
     executors = executors_result.scalars().all()
 
+    from app.models.request import RequestSubject, SUBJECT_LABELS
+    subjects = [(s.value, SUBJECT_LABELS[s]) for s in RequestSubject]
+
     return templates.TemplateResponse("requests/create.html", {
         "request": request,
         "user": user,
         "clients": clients,
         "executors": executors,
+        "subjects": subjects,
     })
 
 
@@ -718,9 +722,13 @@ async def client_create_request_page(request: Request, db: AsyncSession = Depend
     if user.role.value != "client":
         return RedirectResponse(url="/requests/create", status_code=302)
 
+    from app.models.request import RequestSubject, SUBJECT_LABELS
+    subjects = [(s.value, SUBJECT_LABELS[s]) for s in RequestSubject]
+
     return templates.TemplateResponse("client/requests_create.html", {
         "request": request,
         "user": user,
+        "subjects": subjects,
     })
 
 

@@ -9,7 +9,7 @@
         </a>
         <div>
             <h1 class="text-xl font-bold text-gray-900">Новый запрос</h1>
-            <p class="text-xs text-gray-500 mt-0.5">Все поля, кроме клиента, необязательны</p>
+            <p class="text-xs text-gray-500 mt-0.5">Обязательно только поле «Тема»</p>
         </div>
     </div>
 
@@ -17,11 +17,22 @@
         <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8">
             <form action="/api/requests" method="post" enctype="multipart/form-data" id="create-form">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Тема -->
+                    <div>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Тема *</label>
+                        <select name="subject" required class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                            <option value="">— Выберите тему —</option>
+                            {% for value, label in subjects %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
                     <!-- Client Account -->
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Аккаунт клиента *</label>
-                        <select name="client_user_id" required class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
-                            <option value="">— Выберите клиента —</option>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Аккаунт клиента</label>
+                        <select name="client_user_id" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                            <option value="">— Без клиента —</option>
                             {% for c in clients %}
                             <option value="{{ c.id }}">{{ c.full_name }} ({{ c.email }})</option>
                             {% endfor %}

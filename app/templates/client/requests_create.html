@@ -9,7 +9,7 @@
         </a>
         <div>
             <h1 class="text-xl font-bold text-gray-900">Новый запрос</h1>
-            <p class="text-xs text-gray-500 mt-0.5">Заполните то, что считаете нужным — обязательных полей нет</p>
+            <p class="text-xs text-gray-500 mt-0.5">Обязательна только тема — остальное по желанию</p>
         </div>
     </div>
 
@@ -19,6 +19,15 @@
             <div class="bg-white rounded-[32px] shadow-sm border border-gray-100 p-8 mb-4">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-5">Информация</p>
                 <div class="space-y-5">
+                    <div>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Тема *</label>
+                        <select name="subject" required class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                            <option value="">— Выберите тему —</option>
+                            {% for value, label in subjects %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Опишите запрос</label>
                         <textarea name="reason" rows="3" placeholder="Опишите ваш вопрос или обращение..."

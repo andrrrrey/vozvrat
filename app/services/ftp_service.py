@@ -60,6 +60,51 @@ def _upload_file_sync(cfg: dict, remote_path: str, data: bytes) -> None:
         ftp.quit()
 
 
+def _upload_file_to_subdir_sync(cfg: dict, subdirs: list[str], remote_name: str, data: bytes) -> str:
+    """Upload a file into nested subdirectories (created if missing) under the base path.
+
+    Returns the remote path used. Каждый каталог из subdirs создаётся при отсутствии.
+    """
+    ftp = ftplib.FTP()
+    ftp.connect(cfg["host"], cfg["port"], timeout=20)
+    ftp.login(cfg["user"], cfg["password"])
+    try:
+        base = cfg["path"].rstrip("/")
+        if base:
+            try:
+                ftp.cwd(base)
+            except ftplib.error_perm:
+                ftp.mkd(base)
+                ftp.cwd(base)
+        for part in subdirs:
+            try:
+                ftp.cwd(part)
+            except ftplib.error_perm:
+                ftp.mkd(part)
+                ftp.cwd(part)
+        ftp.storbinary(f"STOR {remote_name}", io.BytesIO(data))
+        return f"{'/'.join(subdirs)}/{remote_name}"
+    finally:
+        ftp.quit()
+
+
+async def upload_1c_xlsx(db: AsyncSession, refunds: list) -> str:
+    """Build the 1C XLSX export and upload it via FTP into Vozvrat1C/OUT.
+
+    Папка Vozvrat1C/OUT создаётся автоматически, если её нет. Возвращает удалённый путь.
+    """
+    cfg = await _get_ftp_settings(db)
+    if not cfg["host"]:
+        raise ValueError("FTP не настроен")
+    data = build_1c_xlsx(refunds)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    remote_name = f"goodsReturnReport_{timestamp}.xlsx"
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, _upload_file_to_subdir_sync, cfg, ["Vozvrat1C", "OUT"], remote_name, data
+    )
+
+
 def _build_1c_csv(refunds: list) -> bytes:
     """Build CSV export for 1C from list of Refund objects."""
     output = io.StringIO()

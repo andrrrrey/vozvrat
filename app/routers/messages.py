@@ -141,19 +141,14 @@ async def _notify_new_chat_message(
         author_is_client = author.role.value == "client"
 
         if author_is_client:
-            # Notify staff: the creator if they are staff/admin, otherwise all active staff/admin.
-            recipients: list = []
-            creator = refund.created_by
-            if creator and creator.role in (UserRole.admin, UserRole.staff) and creator.is_active and creator.email:
-                recipients = [creator]
-            else:
-                staff_result = await db.execute(
-                    select(User).where(
-                        User.role.in_([UserRole.admin, UserRole.staff]),
-                        User.is_active == True,
-                    )
+            # По возвратам о новом сообщении клиента уведомляем только админов.
+            admin_result = await db.execute(
+                select(User).where(
+                    User.role == UserRole.admin,
+                    User.is_active == True,
                 )
-                recipients = [u for u in staff_result.scalars().all() if u.email]
+            )
+            recipients = [u for u in admin_result.scalars().all() if u.email]
             link = f"{base_url}/refunds/{refund_id}"
             for recipient in recipients:
                 try:
