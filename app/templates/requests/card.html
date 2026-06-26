@@ -35,10 +35,32 @@
                     <span class="font-medium text-gray-700">{{ req.subject_label }}</span>
                 </div>
                 {% endif %}
+                {% if user.role.value in ('admin', 'staff') %}
+                <div class="mb-2 pb-2 border-b border-gray-100">
+                    <div class="flex items-center justify-between text-xs mb-2">
+                        <span class="text-gray-400">Клиент</span>
+                        <span class="font-medium text-gray-700">{% if req.client_user %}{{ req.client_user.full_name }}{% else %}{{ req.client_name }}{% endif %}</span>
+                    </div>
+                    <div class="flex gap-2 items-center">
+                        <select id="client-select" class="flex-1 min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                            <option value="">— Без клиента —</option>
+                            {% for c in clients %}
+                            <option value="{{ c.id }}" {% if req.client_user_id == c.id %}selected{% endif %}>{{ c.full_name }} ({{ c.email }})</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" onclick="assignClient()"
+                            class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                            Сохранить
+                        </button>
+                    </div>
+                    <span id="client-status" class="block text-[10px] text-gray-400 mt-1"></span>
+                </div>
+                {% else %}
                 <div class="flex justify-between text-xs mb-2">
                     <span class="text-gray-400">Клиент</span>
                     <span class="font-medium text-gray-700">{{ req.client_name }}</span>
                 </div>
+                {% endif %}
                 {% if req.order_id %}
                 <div class="flex justify-between text-xs mb-2">
                     <span class="text-gray-400">ID Заказа</span>
@@ -305,6 +327,19 @@ async function sendComment(e) {
         list.scrollTop = list.scrollHeight;
         input.value = '';
     } catch { showToast('Ошибка сети', 'error'); }
+}
+
+async function assignClient() {
+    const sel = document.getElementById('client-select');
+    const status = document.getElementById('client-status');
+    const fd = new FormData();
+    fd.set('client_user_id', sel.value);
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID + '/client', { method: 'POST', body: fd });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); status.textContent = err.detail || 'Ошибка сохранения'; return; }
+        status.textContent = 'Сохранено';
+        setTimeout(() => window.location.reload(), 600);
+    } catch { status.textContent = 'Ошибка сети'; }
 }
 
 async function assignExecutor() {

@@ -275,3 +275,44 @@ async def send_client_credentials_email(
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
     logger.info(f"Credentials email sent to {to_email}")
+
+
+async def send_new_request_email(
+    db: AsyncSession,
+    to_email: str,
+    recipient_name: str,
+    request_display_id: str,
+    subject_label: Optional[str],
+    link: str,
+) -> None:
+    """Notify a client that a new request was created for them by staff."""
+    smtp = await _get_smtp_settings(db)
+    if not smtp["host"]:
+        raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
+
+    lines = [
+        f"Здравствуйте, {recipient_name}!",
+        "",
+        f"Для вас создан новый запрос {request_display_id}.",
+    ]
+    if subject_label:
+        lines.append(f"Тема: {subject_label}")
+    lines += [
+        "",
+        f"Открыть запрос: {link}",
+        "",
+        "С уважением,",
+        "Система управления возвратами",
+    ]
+    body = "\n".join(lines)
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Новый запрос {request_display_id}"
+    msg["From"] = smtp["from_addr"] or smtp["user"]
+    msg["To"] = to_email
+    msg["Date"] = formatdate()
+    msg.set_content(body, charset="utf-8")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
+    logger.info(f"New-request notification sent to {to_email} for request {request_display_id}")

@@ -669,6 +669,14 @@ async def request_detail_page(request_id: int, request: Request, db: AsyncSessio
 
     staff_users = executors  # для @упоминаний во внутренних комментариях
 
+    clients_result = await db.execute(
+        select(UserModel).where(
+            UserModel.role == UserRole.client,
+            UserModel.is_active == True,
+        ).order_by(UserModel.full_name)
+    )
+    clients = clients_result.scalars().all()
+
     public_files = sorted([f for f in req.files if not f.is_internal], key=lambda f: f.id)
     internal_files = sorted([f for f in req.files if f.is_internal], key=lambda f: f.id)
 
@@ -679,6 +687,7 @@ async def request_detail_page(request_id: int, request: Request, db: AsyncSessio
         "statuses": RequestStatus,
         "executors": executors,
         "staff_users": staff_users,
+        "clients": clients,
         "public_files": public_files,
         "internal_files": internal_files,
     })

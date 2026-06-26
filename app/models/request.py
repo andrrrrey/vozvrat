@@ -17,6 +17,7 @@ class RequestSubject(str, enum.Enum):
     delivery = "delivery"
     rejection = "rejection"
     site = "site"
+    defect = "defect"
     free = "free"
 
 
@@ -24,6 +25,7 @@ SUBJECT_LABELS = {
     RequestSubject.delivery: "Срок поставки",
     RequestSubject.rejection: "Отказ",
     RequestSubject.site: "Вопрос по работе сайта",
+    RequestSubject.defect: "Дефект детали",
     RequestSubject.free: "Свободная тема",
 }
 
