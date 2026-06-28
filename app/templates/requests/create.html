@@ -31,10 +31,21 @@
                     <!-- Client Account -->
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Аккаунт клиента</label>
-                        <select name="client_user_id" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                        <select id="client-user-select" name="client_user_id" onchange="onRequesterChange('client')" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                             <option value="">— Без клиента —</option>
                             {% for c in clients %}
                             <option value="{{ c.id }}">{{ c.full_name }} ({{ c.email }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Staff as requester (instead of client) -->
+                    <div>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Сотрудник (вместо клиента)</label>
+                        <select id="staff-user-select" name="staff_user_id" onchange="onRequesterChange('staff')" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                            <option value="">— Не выбран —</option>
+                            {% for e in executors %}
+                            <option value="{{ e.id }}">{{ e.full_name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -103,6 +114,14 @@
 function showFileNames(input) {
     const div = document.getElementById('file-names');
     div.innerHTML = Array.from(input.files).map(f => `<p class="text-gray-500">${f.name}</p>`).join('');
+}
+
+// Клиент и сотрудник-заявитель взаимоисключающие: выбор одного сбрасывает другой.
+function onRequesterChange(which) {
+    const clientSel = document.getElementById('client-user-select');
+    const staffSel = document.getElementById('staff-user-select');
+    if (which === 'staff' && staffSel.value) clientSel.value = '';
+    if (which === 'client' && clientSel.value) staffSel.value = '';
 }
 </script>
 {% endblock %}

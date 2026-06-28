@@ -146,36 +146,38 @@ async def send_comment_mention_email(
     to_email: str,
     recipient_name: str,
     author_name: str,
-    refund_display_id: str,
-    refund_id: int,
+    entity_display_id: str,
+    link: str,
     comment_text: str,
-    base_url: str = "",
+    entity_dative: str = "возврату",
 ) -> None:
-    """Notify a staff member that they were mentioned in a refund comment."""
+    """Notify a staff member that they were mentioned in a comment.
+
+    `entity_dative` — дательная форма сущности («возврату»/«запросу»),
+    `link` — готовая ссылка на карточку.
+    """
     smtp = await _get_smtp_settings(db)
     if not smtp["host"]:
         raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
 
-    link = f"{base_url}/refunds/{refund_id}" if base_url else f"/refunds/{refund_id}"
-
     body = "\n".join([
         f"Здравствуйте, {recipient_name}!",
         "",
-        f"Сотрудник {author_name} упомянул вас в комментарии к возврату {refund_display_id}.",
+        f"Сотрудник {author_name} упомянул вас в комментарии к {entity_dative} {entity_display_id}.",
         "",
         "Текст комментария:",
         "─" * 40,
         comment_text,
         "─" * 40,
         "",
-        f"Открыть возврат: {link}",
+        f"Открыть: {link}",
         "",
         "С уважением,",
         "Система управления возвратами",
     ])
 
     msg = EmailMessage()
-    msg["Subject"] = f"Вас упомянули в комментарии к возврату {refund_display_id}"
+    msg["Subject"] = f"Вас упомянули в комментарии к {entity_dative} {entity_display_id}"
     msg["From"] = smtp["from_addr"] or smtp["user"]
     msg["To"] = to_email
     msg["Date"] = formatdate()
@@ -183,7 +185,7 @@ async def send_comment_mention_email(
 
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
-    logger.info(f"Mention notification sent to {to_email} for refund {refund_display_id}")
+    logger.info(f"Mention notification sent to {to_email} for {entity_dative} {entity_display_id}")
 
 
 async def send_new_message_email(

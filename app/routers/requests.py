@@ -131,6 +131,11 @@ async def create_request(
     form = await request.form()
     client_user_id_raw = form.get("client_user_id")
     client_user_id = int(client_user_id_raw) if client_user_id_raw and str(client_user_id_raw).isdigit() else None
+    # Сотрудник может быть выбран как заявитель вместо клиента (взаимоисключающе).
+    staff_user_id_raw = form.get("staff_user_id")
+    staff_user_id = int(staff_user_id_raw) if staff_user_id_raw and str(staff_user_id_raw).isdigit() else None
+    if staff_user_id:
+        client_user_id = staff_user_id
     executor_id_raw = form.get("executor_id")
     executor_id = int(executor_id_raw) if executor_id_raw and str(executor_id_raw).isdigit() else None
 
@@ -335,12 +340,13 @@ async def assign_client(
     previous_client_id = req.client_user_id
 
     if client_user_id:
+        # Заявителем может быть клиент или сотрудник (выбор сотрудника вместо клиента).
         client_result = await db.execute(
-            select(User).where(User.id == client_user_id, User.role == UserRole.client)
+            select(User).where(User.id == client_user_id, User.is_active == True)
         )
         client_user = client_result.scalar_one_or_none()
         if not client_user:
-            raise HTTPException(status_code=404, detail="Клиент не найден")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
         req.client_user_id = client_user.id
         req.client_name = client_user.full_name
     else:
@@ -536,6 +542,11 @@ async def post_request_comment(request_id: int, request: Request, db: AsyncSessi
     await db.commit()
     await mark_request_read(request_id, user.id, db)
 
+    # Обработка @упоминаний: уведомить упомянутых сотрудников письмом (best-effort).
+    mentions_raw = str(form.get("mentions", "")).strip()
+    if mentions_raw:
+        await _notify_mentioned_staff_request(mentions_raw, request_id, user, text, request, db)
+
     comments = await _load_request_comments(request_id, db)
     return templates.TemplateResponse(
         "refunds/_comments.html",
@@ -597,3 +608,61 @@ async def _notify_new_request_message(request_id: int, author, text: str, reques
                     logger.warning(f"Failed to send request new-message email to {client.email}: {e}")
     except Exception as e:
         logger.warning(f"_notify_new_request_message failed for request {request_id}: {e}")
+
+
+async def _notify_mentioned_staff_request(
+    mentions_raw: str,
+    request_id: int,
+    author,
+    comment_text: str,
+    request: Request,
+    db: AsyncSession,
+) -> None:
+    """Уведомить упомянутых в комментарии запроса сотрудников/админов. Никогда не падает."""
+    from app.services.email_service import send_comment_mention_email
+
+    try:
+        mention_ids = []
+        for part in mentions_raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                mention_ids.append(int(part))
+        # Не уведомляем автора о собственном упоминании.
+        mention_ids = [mid for mid in set(mention_ids) if mid != author.id]
+        if not mention_ids:
+            return
+
+        req_result = await db.execute(select(RequestModel).where(RequestModel.id == request_id))
+        req = req_result.scalar_one_or_none()
+        display_id = req.display_id if req else f"#{request_id}"
+
+        users_result = await db.execute(
+            select(User).where(
+                User.id.in_(mention_ids),
+                User.role.in_([UserRole.admin, UserRole.staff]),
+                User.is_active == True,
+            )
+        )
+        recipients = users_result.scalars().all()
+
+        base_url = str(request.base_url).rstrip("/") if request else ""
+        link = f"{base_url}/requests/{request_id}" if base_url else f"/requests/{request_id}"
+
+        for recipient in recipients:
+            if not recipient.email:
+                continue
+            try:
+                await send_comment_mention_email(
+                    db=db,
+                    to_email=recipient.email,
+                    recipient_name=recipient.full_name,
+                    author_name=author.full_name,
+                    entity_display_id=display_id,
+                    link=link,
+                    comment_text=comment_text,
+                    entity_dative="запросу",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send request mention email to {recipient.email}: {e}")
+    except Exception as e:
+        logger.warning(f"_notify_mentioned_staff_request failed for request {request_id}: {e}")

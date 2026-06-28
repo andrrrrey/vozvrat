@@ -291,15 +291,16 @@ async def _notify_mentioned_staff(
         if not recipient.email:
             continue
         try:
+            link = f"{base_url}/refunds/{refund_id}" if base_url else f"/refunds/{refund_id}"
             await send_comment_mention_email(
                 db=db,
                 to_email=recipient.email,
                 recipient_name=recipient.full_name,
                 author_name=author.full_name,
-                refund_display_id=display_id,
-                refund_id=refund_id,
+                entity_display_id=display_id,
+                link=link,
                 comment_text=comment_text,
-                base_url=base_url,
+                entity_dative="возврату",
             )
         except Exception as e:
             logger.warning(f"Failed to send mention email to {recipient.email}: {e}")

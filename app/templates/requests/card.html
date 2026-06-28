@@ -41,17 +41,25 @@
                         <span class="text-gray-400">Клиент</span>
                         <span class="font-medium text-gray-700">{% if req.client_user %}{{ req.client_user.full_name }}{% else %}{{ req.client_name }}{% endif %}</span>
                     </div>
-                    <div class="flex gap-2 items-center">
-                        <select id="client-select" class="flex-1 min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                    <div class="space-y-2">
+                        <select id="client-select" onchange="onRequesterChange('client')" class="w-full min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
                             <option value="">— Без клиента —</option>
                             {% for c in clients %}
                             <option value="{{ c.id }}" {% if req.client_user_id == c.id %}selected{% endif %}>{{ c.full_name }} ({{ c.email }})</option>
                             {% endfor %}
                         </select>
-                        <button type="button" onclick="assignClient()"
-                            class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
-                            Сохранить
-                        </button>
+                        <div class="flex gap-2 items-center">
+                            <select id="staff-select" onchange="onRequesterChange('staff')" class="flex-1 min-w-0 bg-gray-50 rounded-xl px-3 py-1.5 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-xs">
+                                <option value="">— Сотрудник вместо клиента —</option>
+                                {% for e in executors %}
+                                <option value="{{ e.id }}" {% if req.client_user_id == e.id %}selected{% endif %}>{{ e.full_name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" onclick="assignClient()"
+                                class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
+                                Сохранить
+                            </button>
+                        </div>
                     </div>
                     <span id="client-status" class="block text-[10px] text-gray-400 mt-1"></span>
                 </div>
@@ -174,13 +182,21 @@
                     <p class="text-xs text-gray-400 text-center py-4">Загрузка...</p>
                 </div>
                 <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
-                    <textarea id="comment-input" name="text" rows="2" placeholder="Добавить комментарий..."
-                        class="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"></textarea>
+                    <div class="flex-1 relative">
+                        <textarea id="comment-input" name="text" rows="2"
+                            placeholder="Добавить комментарий... (введите @ чтобы упомянуть сотрудника)"
+                            autocomplete="off"
+                            class="w-full bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                            oninput="onCommentInput(event)"
+                            onkeydown="onCommentKeydown(event)"></textarea>
+                        <div id="mention-dropdown" class="hidden absolute z-30 bottom-full mb-1 left-0 w-64 max-h-48 overflow-y-auto bg-white rounded-xl shadow-lg border border-gray-100"></div>
+                    </div>
                     <button type="submit"
                         class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-xl hover:bg-black transition-colors whitespace-nowrap">
                         Добавить
                     </button>
                 </form>
+                <p id="mention-hint" class="hidden text-[10px] text-indigo-500 mt-1.5"></p>
             </div>
             {% endif %}
         </div>
@@ -312,6 +328,89 @@ document.body.addEventListener('htmx:afterSettle', function(evt) {
     }
 });
 
+// ---- @mentions in comments ----
+const STAFF_USERS = [
+    {% for s in staff_users %}{ id: {{ s.id }}, name: {{ s.full_name | tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+let mentionedIds = new Set();
+let mentionStart = -1; // index of '@' currently being completed
+
+function renderMentionHint() {
+    const hint = document.getElementById('mention-hint');
+    if (!hint) return;
+    if (mentionedIds.size === 0) { hint.classList.add('hidden'); hint.textContent = ''; return; }
+    const names = STAFF_USERS.filter(u => mentionedIds.has(u.id)).map(u => u.name);
+    hint.textContent = 'Уведомление получат: ' + names.join(', ');
+    hint.classList.remove('hidden');
+}
+
+function closeMentionDropdown() {
+    const dd = document.getElementById('mention-dropdown');
+    if (dd) { dd.classList.add('hidden'); dd.innerHTML = ''; }
+    mentionStart = -1;
+}
+
+function onCommentInput(e) {
+    const input = e.target;
+    const pos = input.selectionStart;
+    const textBefore = input.value.slice(0, pos);
+    const at = textBefore.lastIndexOf('@');
+    // Recompute which mentioned users are still present in the text.
+    const lowered = input.value.toLowerCase();
+    STAFF_USERS.forEach(u => {
+        if (mentionedIds.has(u.id) && !lowered.includes('@' + u.name.toLowerCase())) {
+            mentionedIds.delete(u.id);
+        }
+    });
+    renderMentionHint();
+
+    if (at === -1) { closeMentionDropdown(); return; }
+    const query = textBefore.slice(at + 1);
+    // Stop offering the dropdown if there's a newline between '@' and cursor.
+    if (/\n/.test(query)) { closeMentionDropdown(); return; }
+    mentionStart = at;
+    const q = query.toLowerCase();
+    const matches = STAFF_USERS.filter(u => u.name.toLowerCase().includes(q)).slice(0, 8);
+    const dd = document.getElementById('mention-dropdown');
+    if (!matches.length) { closeMentionDropdown(); return; }
+    dd.innerHTML = matches.map(u =>
+        `<button type="button" onmousedown="event.preventDefault()" onclick="selectMention(${u.id})"
+            class="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[9px] font-bold text-gray-600">${(u.name[0]||'?').toUpperCase()}</span>
+            ${u.name.replace(/</g,'&lt;')}
+        </button>`).join('');
+    dd.classList.remove('hidden');
+}
+
+function onCommentKeydown(e) {
+    const dd = document.getElementById('mention-dropdown');
+    const open = dd && !dd.classList.contains('hidden');
+    if (e.key === 'Escape' && open) { e.preventDefault(); closeMentionDropdown(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+        if (open) { return; } // let user keep typing; don't submit while picking
+        e.preventDefault();
+        document.getElementById('comment-form').dispatchEvent(new Event('submit'));
+    }
+}
+
+function selectMention(userId) {
+    const u = STAFF_USERS.find(x => x.id === userId);
+    if (!u) return;
+    const input = document.getElementById('comment-input');
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, mentionStart);
+    const after = input.value.slice(pos);
+    const insert = '@' + u.name + ' ';
+    input.value = before + insert + after;
+    const newPos = (before + insert).length;
+    input.setSelectionRange(newPos, newPos);
+    mentionedIds.add(u.id);
+    closeMentionDropdown();
+    renderMentionHint();
+    input.focus();
+}
+
 async function sendComment(e) {
     e.preventDefault();
     const input = document.getElementById('comment-input');
@@ -319,6 +418,9 @@ async function sendComment(e) {
     if (!text) return;
     const data = new FormData();
     data.set('text', text);
+    if (mentionedIds.size > 0) {
+        data.set('mentions', Array.from(mentionedIds).join(','));
+    }
     try {
         const res = await fetch('/api/requests/' + REQUEST_ID + '/comments', { method: 'POST', body: data });
         if (!res.ok) { const err = await res.json(); showToast('Ошибка: ' + (err.detail || 'Не удалось добавить комментарий'), 'error'); return; }
@@ -326,14 +428,28 @@ async function sendComment(e) {
         list.innerHTML = await res.text();
         list.scrollTop = list.scrollHeight;
         input.value = '';
+        mentionedIds.clear();
+        closeMentionDropdown();
+        renderMentionHint();
     } catch { showToast('Ошибка сети', 'error'); }
 }
 
+// Клиент и сотрудник-заявитель взаимоисключающие: выбор одного сбрасывает другой.
+function onRequesterChange(which) {
+    const clientSel = document.getElementById('client-select');
+    const staffSel = document.getElementById('staff-select');
+    if (which === 'staff' && staffSel.value) clientSel.value = '';
+    if (which === 'client' && clientSel.value) staffSel.value = '';
+}
+
 async function assignClient() {
-    const sel = document.getElementById('client-select');
+    const clientSel = document.getElementById('client-select');
+    const staffSel = document.getElementById('staff-select');
     const status = document.getElementById('client-status');
+    // Заявитель — выбранный сотрудник либо клиент (непустое значение).
+    const value = staffSel.value || clientSel.value;
     const fd = new FormData();
-    fd.set('client_user_id', sel.value);
+    fd.set('client_user_id', value);
     try {
         const res = await fetch('/api/requests/' + REQUEST_ID + '/client', { method: 'POST', body: fd });
         if (!res.ok) { const err = await res.json().catch(() => ({})); status.textContent = err.detail || 'Ошибка сохранения'; return; }
