@@ -386,6 +386,9 @@ async def create_client_refund(
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
     supplier_name_text = str(form.get("supplier_name_text", "")).strip() or None
+    upd_number = str(form.get("upd_number", "")).strip() or None
+    if not upd_number:
+        raise HTTPException(status_code=400, detail="Необходимо указать номер УПД")
 
     articles = form.getlist("article[]")
     brands = form.getlist("brand[]")
@@ -408,6 +411,7 @@ async def create_client_refund(
         supplier_name=supplier_name_text,
         order_id=order_id,
         reason=reason,
+        upd_number=upd_number,
         created_by_id=user.id,
     )
     db.add(refund)
