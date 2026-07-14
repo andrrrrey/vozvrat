@@ -416,6 +416,20 @@ async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     })
 
 
+@router.get("/tables")
+async def tables_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value not in ("admin", "staff"):
+        return RedirectResponse(url="/refunds", status_code=302)
+
+    return templates.TemplateResponse("tables/index.html", {
+        "request": request,
+        "user": user,
+    })
+
+
 @router.get("/settings")
 async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = await get_optional_user(request, db)

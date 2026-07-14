@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Работа с таблицами{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Работа с таблицами</h1>
+        <p class="text-sm text-gray-500 mt-1">Проставление кодов ТН ВЭД и ОКПД 2 в прайс-лист</p>
+    </div>
+
+    <div class="max-w-2xl bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
+        <p class="text-sm text-gray-500 mb-6">
+            Загрузите <span class="font-medium text-gray-700">Прайс</span> и
+            <span class="font-medium text-gray-700">таблицу с кодами</span>. Система найдёт в прайсе
+            артикулы из таблицы с кодами и добавит два столбца — <span class="font-medium text-gray-700">«код ТЭНВД»</span>
+            и <span class="font-medium text-gray-700">«код ОКПД 2»</span>, после чего вернёт готовый файл для скачивания.
+        </p>
+
+        <form id="tables-enrich-form" enctype="multipart/form-data">
+            <div class="mb-4">
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Прайс (XLS/XLSX)</label>
+                <input type="file" name="price_file" id="price-file-input" accept=".xls,.xlsx"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-black cursor-pointer">
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Таблица с кодами (XLS/XLSX)</label>
+                <input type="file" name="codes_file" id="codes-file-input" accept=".xls,.xlsx"
+                    class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-black cursor-pointer">
+            </div>
+
+            <div id="tables-result" class="hidden mb-4 p-3 rounded-xl text-sm whitespace-pre-line"></div>
+
+            <div class="flex justify-end">
+                <button type="button" id="tables-enrich-btn" onclick="submitTablesEnrich()"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Обработать и скачать
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function submitTablesEnrich() {
+    const priceInput = document.getElementById('price-file-input');
+    const codesInput = document.getElementById('codes-file-input');
+    const resultDiv = document.getElementById('tables-result');
+    const btn = document.getElementById('tables-enrich-btn');
+
+    function showError(msg) {
+        resultDiv.className = 'mb-4 p-3 rounded-xl text-sm whitespace-pre-line bg-red-50 text-red-700';
+        resultDiv.textContent = msg;
+        resultDiv.classList.remove('hidden');
+    }
+
+    if (!priceInput.files.length || !codesInput.files.length) {
+        showError('Выберите оба файла: Прайс и таблицу с кодами.');
+        return;
+    }
+
+    btn.disabled = true;
+    const btnText = btn.innerHTML;
+    btn.textContent = 'Обработка...';
+    resultDiv.classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append('price_file', priceInput.files[0]);
+    formData.append('codes_file', codesInput.files[0]);
+
+    try {
+        const resp = await fetch('/api/tables/enrich', { method: 'POST', body: formData });
+
+        if (!resp.ok) {
+            let msg = 'Ошибка обработки файлов';
+            try { const data = await resp.json(); if (data.detail) msg = data.detail; } catch (e) {}
+            showError(msg);
+            return;
+        }
+
+        // Извлечь имя файла из Content-Disposition
+        let filename = 'прайс_с_кодами.xlsx';
+        const cd = resp.headers.get('Content-Disposition') || '';
+        const star = cd.match(/filename\*=UTF-8''([^;]+)/i);
+        const plain = cd.match(/filename="?([^"]+)"?/i);
+        if (star) filename = decodeURIComponent(star[1]);
+        else if (plain) filename = plain[1];
+
+        const matched = resp.headers.get('X-Matched-Count');
+        const total = resp.headers.get('X-Total-Count');
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        let msg = 'Готово! Файл скачан.';
+        if (matched !== null && total !== null) {
+            msg = `Готово! Найдено кодов: ${matched} из ${total}. Файл скачан.`;
+        }
+        resultDiv.className = 'mb-4 p-3 rounded-xl text-sm whitespace-pre-line bg-green-50 text-green-700';
+        resultDiv.textContent = msg;
+        resultDiv.classList.remove('hidden');
+    } catch (e) {
+        showError('Не удалось выполнить запрос: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = btnText;
+    }
+}
+</script>
+{% endblock %}
