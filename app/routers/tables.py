@@ -40,27 +40,61 @@ def _norm(value) -> str:
     return str(value).strip().upper()
 
 
-# Заголовки колонок с кодами (как в файле-справочнике)
-TNVED_HEADER = "код ТЭНВД"
+# Заголовки колонок с кодами по умолчанию (если в файле-справочнике их не удалось прочитать).
+TNVED_HEADER = "код ТН ВЭД"
 OKPD_HEADER = "код ОКПД 2"
 
 
-def _find_header_row(ws, wanted_norms, max_scan=25):
-    """Find the first row (within max_scan) that contains any of the wanted header
-    names. Returns (row_index, {norm_name: column_index}) or (None, {})."""
+def _hkey(value) -> str:
+    """Normalize a header for keyword matching: upper-case, drop all whitespace
+    (including non-breaking) and dots so 'код ТН ВЭД' == 'КОДТНВЭД'."""
+    return "".join(str(value or "").upper().split()).replace("\xa0", "").replace(".", "")
+
+
+def _classify_codes_header(row):
+    """Given a header row (tuple of cell values), locate the article / ТН ВЭД / ОКПД
+    columns by keyword. Returns dict with indices and original header texts, or None
+    if all three are not present.
+
+    Tolerant of spelling variants: 'код ТН ВЭД' / 'код ТЭНВД', 'код ОКПД 2' / 'код ОКПД2'."""
+    art_col = tnved_col = okpd_col = None
+    tnved_header = okpd_header = None
+    for idx, cell in enumerate(row):
+        key = _hkey(cell)
+        if not key:
+            continue
+        if art_col is None and "АРТИКУЛ" in key:
+            art_col = idx
+        elif okpd_col is None and "ОКПД" in key:
+            okpd_col = idx
+            okpd_header = str(cell).strip()
+        elif tnved_col is None and ("ВЭД" in key or "ТЭНВД" in key or "ТНВД" in key or "ВЕД" in key):
+            tnved_col = idx
+            tnved_header = str(cell).strip()
+    if art_col is None or tnved_col is None or okpd_col is None:
+        return None
+    return {
+        "art_col": art_col,
+        "tnved_col": tnved_col,
+        "okpd_col": okpd_col,
+        "tnved_header": tnved_header or TNVED_HEADER,
+        "okpd_header": okpd_header or OKPD_HEADER,
+    }
+
+
+def _find_price_header_row(ws, target_norm, max_scan=25):
+    """Find the price header row containing target_norm (e.g. 'КАТАЛОЖНЫЙ НОМЕР').
+    Returns (row_index, column_index) or (None, None)."""
     for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=max_scan, values_only=True), start=1):
-        col_map = {}
         for col_idx, cell in enumerate(row):
-            n = _norm(cell)
-            if n:
-                col_map.setdefault(n, col_idx)
-        if any(w in col_map for w in wanted_norms):
-            return row_idx, col_map
-    return None, {}
+            if _norm(cell) == target_norm:
+                return row_idx, col_idx
+    return None, None
 
 
-def _build_codes_map(codes_bytes: bytes) -> dict:
-    """Read the codes reference file into {norm(article): (tnved, okpd2)}."""
+def _build_codes_map(codes_bytes: bytes):
+    """Read the codes reference file into {norm(article): (tnved, okpd2)}.
+    Returns (codes_map, tnved_header, okpd_header)."""
     import openpyxl
 
     try:
@@ -72,21 +106,25 @@ def _build_codes_map(codes_bytes: bytes) -> dict:
         )
 
     ws = wb.active
-    art_n = _norm("артикул")
-    tnved_n = _norm(TNVED_HEADER)
-    okpd_n = _norm(OKPD_HEADER)
 
-    header_row, col_map = _find_header_row(ws, {art_n})
-    if header_row is None or art_n not in col_map or tnved_n not in col_map or okpd_n not in col_map:
+    header_row = None
+    cols = None
+    for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=25, values_only=True), start=1):
+        cols = _classify_codes_header(row)
+        if cols is not None:
+            header_row = row_idx
+            break
+
+    if cols is None:
         wb.close()
         raise HTTPException(
             status_code=400,
-            detail="В файле «таблица с кодами» не найдены колонки «артикул», «код ТЭНВД», «код ОКПД 2».",
+            detail="В файле «таблица с кодами» не найдены колонки «артикул», «код ТН ВЭД», «код ОКПД 2».",
         )
 
-    art_col = col_map[art_n]
-    tnved_col = col_map[tnved_n]
-    okpd_col = col_map[okpd_n]
+    art_col = cols["art_col"]
+    tnved_col = cols["tnved_col"]
+    okpd_col = cols["okpd_col"]
 
     codes_map: dict = {}
     for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
@@ -100,10 +138,11 @@ def _build_codes_map(codes_bytes: bytes) -> dict:
         codes_map[key] = (tnved, okpd)
 
     wb.close()
-    return codes_map
+    return codes_map, cols["tnved_header"], cols["okpd_header"]
 
 
-def _enrich_price(price_bytes: bytes, codes_map: dict):
+def _enrich_price(price_bytes: bytes, codes_map: dict,
+                  tnved_header: str = TNVED_HEADER, okpd_header: str = OKPD_HEADER):
     """Load the price workbook, append two code columns, fill matched rows.
     Returns (xlsx_bytes, matched, total)."""
     import openpyxl
@@ -117,22 +156,20 @@ def _enrich_price(price_bytes: bytes, codes_map: dict):
         )
 
     ws = wb.active
-    catalog_n = _norm("Каталожный номер")
-    header_row, col_map = _find_header_row(ws, {catalog_n})
-    if header_row is None or catalog_n not in col_map:
+    header_row, art_col = _find_price_header_row(ws, _norm("Каталожный номер"))
+    if header_row is None:
         wb.close()
         raise HTTPException(
             status_code=400,
             detail="В файле «Прайс» не найдена колонка «Каталожный номер».",
         )
 
-    art_col = col_map[catalog_n]  # 0-based
     # Первые свободные колонки справа (1-based для openpyxl cell)
     tnved_col = ws.max_column + 1
     okpd_col = ws.max_column + 2
 
-    ws.cell(row=header_row, column=tnved_col, value=TNVED_HEADER)
-    ws.cell(row=header_row, column=okpd_col, value=OKPD_HEADER)
+    ws.cell(row=header_row, column=tnved_col, value=tnved_header)
+    ws.cell(row=header_row, column=okpd_col, value=okpd_header)
 
     matched = 0
     total = 0
@@ -177,8 +214,8 @@ async def enrich_price_with_codes(
     loop = asyncio.get_event_loop()
 
     def _process():
-        codes_map = _build_codes_map(codes_bytes)
-        return _enrich_price(price_bytes, codes_map)
+        codes_map, tnved_header, okpd_header = _build_codes_map(codes_bytes)
+        return _enrich_price(price_bytes, codes_map, tnved_header, okpd_header)
 
     xlsx_data, matched, total = await loop.run_in_executor(None, _process)
 
