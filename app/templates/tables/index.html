@@ -13,8 +13,13 @@
         <p class="text-sm text-gray-500 mb-6">
             Загрузите <span class="font-medium text-gray-700">Прайс</span> и
             <span class="font-medium text-gray-700">таблицу с кодами</span>. Система найдёт в прайсе
-            артикулы из таблицы с кодами и добавит два столбца — <span class="font-medium text-gray-700">«код ТЭНВД»</span>
+            артикулы из таблицы с кодами и добавит два столбца — <span class="font-medium text-gray-700">«код ТН ВЭД»</span>
             и <span class="font-medium text-gray-700">«код ОКПД 2»</span>, после чего вернёт готовый файл для скачивания.
+        </p>
+        <p class="text-xs text-gray-400 mb-6">
+            Колонки в таблице с кодами определяются по названиям («артикул», «код ТН ВЭД», «код ОКПД 2»).
+            Если строки заголовков нет, используется стандартный порядок: A — артикул, B — бренд,
+            C — код ТН ВЭД, D — код ОКПД 2.
         </p>
 
         <form id="tables-enrich-form" enctype="multipart/form-data">
@@ -90,6 +95,8 @@ async function submitTablesEnrich() {
 
         const matched = resp.headers.get('X-Matched-Count');
         const total = resp.headers.get('X-Total-Count');
+        const codesCount = resp.headers.get('X-Codes-Count');
+        const layout = resp.headers.get('X-Codes-Layout');
 
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
@@ -103,7 +110,12 @@ async function submitTablesEnrich() {
 
         let msg = 'Готово! Файл скачан.';
         if (matched !== null && total !== null) {
-            msg = `Готово! Найдено кодов: ${matched} из ${total}. Файл скачан.`;
+            msg = `Готово! Проставлено кодов: ${matched} из ${total} позиций прайса.`;
+            if (codesCount !== null) msg += ` Записей в таблице с кодами: ${codesCount}.`;
+            msg += ' Файл скачан.';
+        }
+        if (layout === 'positional') {
+            msg += '\nВ таблице с кодами не найдена строка заголовков — использован стандартный порядок колонок (A — артикул, C — код ТН ВЭД, D — код ОКПД 2). Проверьте результат.';
         }
         resultDiv.className = 'mb-4 p-3 rounded-xl text-sm whitespace-pre-line bg-green-50 text-green-700';
         resultDiv.textContent = msg;

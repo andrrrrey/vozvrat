@@ -94,7 +94,9 @@ def _find_price_header_row(ws, target_norm, max_scan=25):
 
 def _build_codes_map(codes_bytes: bytes):
     """Read the codes reference file into {norm(article): (tnved, okpd2)}.
-    Returns (codes_map, tnved_header, okpd_header)."""
+    Returns (codes_map, tnved_header, okpd_header, layout), where layout is
+    'header' (columns found by name) or 'positional' (no header row — standard
+    column order A/C/D assumed)."""
     import openpyxl
 
     try:
@@ -115,12 +117,29 @@ def _build_codes_map(codes_bytes: bytes):
             header_row = row_idx
             break
 
+    layout = "header"
     if cols is None:
-        wb.close()
-        raise HTTPException(
-            status_code=400,
-            detail="В файле «таблица с кодами» не найдены колонки «артикул», «код ТН ВЭД», «код ОКПД 2».",
-        )
+        # Файл без строки заголовков — используем стандартный порядок колонок:
+        # A=артикул, B=бренд, C=код ТН ВЭД, D=код ОКПД 2. Данные с первой строки.
+        if ws.max_column is None or ws.max_column < 4:
+            wb.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "В файле «таблица с кодами» не найдены колонки «артикул», «код ТН ВЭД», "
+                    "«код ОКПД 2», и файл не подходит под стандартный порядок колонок "
+                    "(A — артикул, B — бренд, C — код ТН ВЭД, D — код ОКПД 2)."
+                ),
+            )
+        cols = {
+            "art_col": 0,
+            "tnved_col": 2,
+            "okpd_col": 3,
+            "tnved_header": TNVED_HEADER,
+            "okpd_header": OKPD_HEADER,
+        }
+        header_row = 0  # данные начинаются со строки 1
+        layout = "positional"
 
     art_col = cols["art_col"]
     tnved_col = cols["tnved_col"]
@@ -138,7 +157,7 @@ def _build_codes_map(codes_bytes: bytes):
         codes_map[key] = (tnved, okpd)
 
     wb.close()
-    return codes_map, cols["tnved_header"], cols["okpd_header"]
+    return codes_map, cols["tnved_header"], cols["okpd_header"], layout
 
 
 def _enrich_price(price_bytes: bytes, codes_map: dict,
@@ -214,10 +233,11 @@ async def enrich_price_with_codes(
     loop = asyncio.get_event_loop()
 
     def _process():
-        codes_map, tnved_header, okpd_header = _build_codes_map(codes_bytes)
-        return _enrich_price(price_bytes, codes_map, tnved_header, okpd_header)
+        codes_map, tnved_header, okpd_header, layout = _build_codes_map(codes_bytes)
+        xlsx, matched, total = _enrich_price(price_bytes, codes_map, tnved_header, okpd_header)
+        return xlsx, matched, total, layout, len(codes_map)
 
-    xlsx_data, matched, total = await loop.run_in_executor(None, _process)
+    xlsx_data, matched, total, layout, codes_count = await loop.run_in_executor(None, _process)
 
     base_name = (price_file.filename or "прайс").rsplit(".", 1)[0]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -234,5 +254,7 @@ async def enrich_price_with_codes(
             "Content-Disposition": cd,
             "X-Matched-Count": str(matched),
             "X-Total-Count": str(total),
+            "X-Codes-Count": str(codes_count),
+            "X-Codes-Layout": layout,
         },
     )
