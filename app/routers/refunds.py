@@ -857,6 +857,7 @@ async def update_status(
             selectinload(Refund.supplier),
             selectinload(Refund.items),
             selectinload(Refund.files),
+            selectinload(Refund.client_user),
         ).where(Refund.id == refund_id)
     )
     refund = result.scalar_one_or_none()
@@ -864,9 +865,14 @@ async def update_status(
     if not refund:
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
+    old_status = refund.status
     refund.status = new_status
     await db.flush()
     await db.refresh(refund)
+
+    # Уведомить клиента об изменении статуса возврата (best-effort).
+    if new_status != old_status:
+        await _notify_client_refund_status_change(refund, request, db)
 
     from fastapi.templating import Jinja2Templates
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -876,3 +882,20 @@ async def update_status(
         "refunds/_status_section.html",
         {"request": request, "refund": refund, "user": user},
     )
+
+
+async def _notify_client_refund_status_change(refund: Refund, request: Request, db: AsyncSession) -> None:
+    """Письмо клиенту об изменении статуса возврата. Никогда не падает."""
+    from app.services.email_service import send_status_change_email
+    try:
+        client = refund.client_user
+        if not client or not client.email:
+            return
+        base_url = str(request.base_url).rstrip("/") if request else ""
+        link = f"{base_url}/client/refunds/{refund.id}"
+        await send_status_change_email(
+            db, client.email, client.full_name, refund.display_id,
+            entity_dative="возврату", new_status_label=refund.status_label, link=link,
+        )
+    except Exception as e:
+        logger.warning(f"_notify_client_refund_status_change failed for refund {refund.id}: {e}")

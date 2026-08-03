@@ -358,7 +358,7 @@
                 <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
                     <div class="flex-1 relative">
                         <textarea id="comment-input" name="text" rows="2"
-                            placeholder="Добавить комментарий... (введите @ чтобы упомянуть сотрудника)"
+                            placeholder="Добавить комментарий... (введите + чтобы упомянуть сотрудника)"
                             autocomplete="off"
                             class="w-full bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
                             oninput="onCommentInput(event)"
@@ -890,11 +890,11 @@ function onCommentInput(e) {
     const input = e.target;
     const pos = input.selectionStart;
     const textBefore = input.value.slice(0, pos);
-    const at = textBefore.lastIndexOf('@');
+    const at = textBefore.lastIndexOf('+');
     // Recompute which mentioned users are still present in the text.
     const lowered = input.value.toLowerCase();
     STAFF_USERS.forEach(u => {
-        if (mentionedIds.has(u.id) && !lowered.includes('@' + u.name.toLowerCase())) {
+        if (mentionedIds.has(u.id) && !lowered.includes('+' + u.name.toLowerCase())) {
             mentionedIds.delete(u.id);
         }
     });
@@ -936,7 +936,7 @@ function selectMention(userId) {
     const pos = input.selectionStart;
     const before = input.value.slice(0, mentionStart);
     const after = input.value.slice(pos);
-    const insert = '@' + u.name + ' ';
+    const insert = '+' + u.name + ' ';
     input.value = before + insert + after;
     const newPos = (before + insert).length;
     input.setSelectionRange(newPos, newPos);

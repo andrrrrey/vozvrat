@@ -78,6 +78,16 @@ async def create_user(
     await db.flush()
     await db.refresh(user)
     logger.info(f"Created user: {email}, role={role}")
+
+    # Выслать новому пользователю данные для входа и ссылку на сайт (best-effort).
+    from app.services.email_service import send_client_credentials_email
+    try:
+        base_url = str(request.base_url).rstrip("/")
+        login_link = f"{base_url}/login"
+        await send_client_credentials_email(db, email, full_name, password, login_link=login_link)
+    except Exception as e:
+        logger.warning(f"Failed to send credentials email to {email}: {e}")
+
     return user
 
 
@@ -231,8 +241,9 @@ async def send_password(
     await db.flush()
 
     from app.services.email_service import send_client_credentials_email
+    login_link = f"{str(request.base_url).rstrip('/')}/login"
     try:
-        await send_client_credentials_email(db, target.email, target.full_name, new_password)
+        await send_client_credentials_email(db, target.email, target.full_name, new_password, login_link=login_link)
     except Exception as e:
         logger.error(f"Failed to send credentials email to {target.email}: {e}")
         raise HTTPException(status_code=503, detail=f"Пароль обновлён, но письмо не отправлено: {e}")
@@ -292,8 +303,9 @@ async def invite_client(
         await db.flush()
 
     from app.services.email_service import send_client_credentials_email
+    login_link = f"{str(request.base_url).rstrip('/')}/login"
     try:
-        await send_client_credentials_email(db, email, full_name, new_password)
+        await send_client_credentials_email(db, email, full_name, new_password, login_link=login_link)
     except Exception as e:
         logger.error(f"Failed to send invite email to {email}: {e}")
         raise HTTPException(status_code=503, detail=f"Аккаунт создан, но письмо не отправлено: {e}")

@@ -572,6 +572,11 @@ async def requests_page(
         selectinload(RequestModel.executor),
     ).order_by(RequestModel.created_at.desc())
 
+    # По умолчанию скрываем завершённые запросы; показываем только при явном
+    # выборе фильтра по статусу "Завершён".
+    if status != RequestStatus.completed.value:
+        query = query.where(RequestModel.status != RequestStatus.completed)
+
     query = build_request_filter(query, status, executor_id, client_name, date, article, order_id)
 
     count_q = select(func.count()).select_from(query.subquery())

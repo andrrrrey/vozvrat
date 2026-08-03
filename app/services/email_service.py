@@ -247,13 +247,17 @@ async def send_client_credentials_email(
     to_email: str,
     full_name: str,
     password: str,
+    login_link: Optional[str] = None,
 ) -> None:
-    """Send login credentials to a newly created or updated client account."""
+    """Send login credentials to a newly created or updated account.
+
+    `login_link` — ссылка на страницу авторизации сайта (если передана,
+    добавляется в письмо)."""
     smtp = await _get_smtp_settings(db)
     if not smtp["host"]:
         raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
 
-    body = "\n".join([
+    lines = [
         f"Здравствуйте, {full_name}!",
         "",
         "Для вас создан аккаунт в системе управления возвратами.",
@@ -261,11 +265,19 @@ async def send_client_credentials_email(
         f"Email:    {to_email}",
         f"Пароль:   {password}",
         "",
-        "Войдите на сайт и смените пароль при первом входе.",
+    ]
+    if login_link:
+        lines += [
+            f"Войти на сайт: {login_link}",
+            "",
+        ]
+    lines += [
+        "Смените пароль при первом входе.",
         "",
         "С уважением,",
         "Служба поддержки",
-    ])
+    ]
+    body = "\n".join(lines)
 
     msg = EmailMessage()
     msg["Subject"] = "Данные для входа в систему"
@@ -318,3 +330,44 @@ async def send_new_request_email(
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
     logger.info(f"New-request notification sent to {to_email} for request {request_display_id}")
+
+
+async def send_status_change_email(
+    db: AsyncSession,
+    to_email: str,
+    recipient_name: str,
+    entity_display_id: str,
+    entity_dative: str,
+    new_status_label: str,
+    link: str,
+) -> None:
+    """Notify a client that the status of their request/refund changed.
+
+    `entity_dative` — дательная форма сущности («возврату»/«запросу»)."""
+    smtp = await _get_smtp_settings(db)
+    if not smtp["host"]:
+        raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
+
+    body = "\n".join([
+        f"Здравствуйте, {recipient_name}!",
+        "",
+        f"Статус по вашему {entity_dative} {entity_display_id} изменён.",
+        "",
+        f"Новый статус: {new_status_label}",
+        "",
+        f"Открыть: {link}",
+        "",
+        "С уважением,",
+        "Система управления возвратами",
+    ])
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Изменение статуса по {entity_dative} {entity_display_id}"
+    msg["From"] = smtp["from_addr"] or smtp["user"]
+    msg["To"] = to_email
+    msg["Date"] = formatdate()
+    msg.set_content(body, charset="utf-8")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
+    logger.info(f"Status-change notification sent to {to_email} for {entity_dative} {entity_display_id}")
