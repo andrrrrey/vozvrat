@@ -95,6 +95,11 @@ async def requests_table_partial(
     if user.role.value == "client":
         query = query.where(RequestModel.client_user_id == user.id)
 
+    # По умолчанию скрываем завершённые запросы; показываем только если явно
+    # выбран фильтр по статусу "Завершён".
+    if status != RequestStatus.completed.value:
+        query = query.where(RequestModel.status != RequestStatus.completed)
+
     query = build_request_filter(query, status, executor_id_int, client_name, date, article, order_id)
 
     count_q = select(func.count()).select_from(query.subquery())
@@ -299,6 +304,63 @@ async def delete_request(
     return JSONResponse({"ok": True})
 
 
+@router.post("/{request_id}/create-refund")
+async def create_refund_from_request(
+    request_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать заявку на возврат из запроса. Доступно админам и сотрудникам."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    result = await db.execute(
+        select(RequestModel).options(
+            selectinload(RequestModel.items),
+            selectinload(RequestModel.client_user),
+        ).where(RequestModel.id == request_id)
+    )
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+
+    from app.models.refund import Refund, RefundStatus, RefundSource
+    from app.models.refund_item import RefundItem
+    from app.routers.refunds import generate_display_id
+
+    display_id = await generate_display_id(db)
+    refund = Refund(
+        display_id=display_id,
+        status=RefundStatus.received,
+        source=RefundSource.manual,
+        client_name=req.client_name,
+        client_user_id=req.client_user_id,
+        order_id=req.order_id,
+        reason=req.reason,
+        created_by_id=user.id,
+    )
+    db.add(refund)
+    await db.flush()
+    await db.refresh(refund)
+
+    for item in req.items:
+        db.add(RefundItem(
+            refund_id=refund.id,
+            article=item.article or "—",
+            brand=item.brand,
+            quantity=item.quantity or 1,
+            price=item.price,
+            position_id=item.position_id,
+            comment=item.comment,
+        ))
+
+    await db.flush()
+    logger.info(f"Refund {refund.display_id} created from request {req.display_id} by user id={user.id}")
+
+    return JSONResponse({"ok": True, "refund_id": refund.id})
+
+
 async def _notify_client_new_request(req: RequestModel, request: Request, db: AsyncSession) -> None:
     """Письмо клиенту о созданном для него запросе. Никогда не падает."""
     from app.services.email_service import send_new_request_email
@@ -416,19 +478,44 @@ async def update_request_status(
         raise HTTPException(status_code=400, detail="Недопустимый статус")
 
     result = await db.execute(
-        select(RequestModel).options(selectinload(RequestModel.executor)).where(RequestModel.id == request_id)
+        select(RequestModel).options(
+            selectinload(RequestModel.executor),
+            selectinload(RequestModel.client_user),
+        ).where(RequestModel.id == request_id)
     )
     req = result.scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=404, detail="Запрос не найден")
 
+    old_status = req.status
     req.status = new_status
     await db.flush()
+
+    # Уведомить клиента об изменении статуса (best-effort).
+    if new_status != old_status:
+        await _notify_client_status_change(req, request, db)
 
     return templates.TemplateResponse(
         "requests/_status_section.html",
         {"request": request, "req": req, "user": user, "statuses": RequestStatus},
     )
+
+
+async def _notify_client_status_change(req: RequestModel, request: Request, db: AsyncSession) -> None:
+    """Письмо клиенту об изменении статуса запроса. Никогда не падает."""
+    from app.services.email_service import send_status_change_email
+    try:
+        client = req.client_user
+        if not client or not client.email:
+            return
+        base_url = str(request.base_url).rstrip("/") if request else ""
+        link = f"{base_url}/client/requests/{req.id}"
+        await send_status_change_email(
+            db, client.email, client.full_name, req.display_id,
+            entity_dative="запросу", new_status_label=req.status_label, link=link,
+        )
+    except Exception as e:
+        logger.warning(f"_notify_client_status_change failed for request {req.id}: {e}")
 
 
 # ---------------------------------------------------------------------------

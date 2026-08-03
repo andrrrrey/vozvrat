@@ -15,12 +15,20 @@
             </div>
             <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide {{ req.status_color }}">{{ req.status_label }}</span>
         </div>
-        {% if user.role.value == 'admin' %}
-        <button onclick="deleteRequest()" class="inline-flex items-center gap-2 px-3 py-2 bg-white text-red-600 rounded-2xl text-xs font-semibold hover:bg-red-50 shadow-sm border border-gray-200 transition-all">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            Удалить
-        </button>
-        {% endif %}
+        <div class="flex items-center gap-2">
+            {% if user.role.value in ('admin', 'staff') %}
+            <button onclick="createRefundFromRequest()" class="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-2xl text-xs font-semibold hover:bg-black shadow-sm transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                Создать возврат
+            </button>
+            {% endif %}
+            {% if user.role.value == 'admin' %}
+            <button onclick="deleteRequest()" class="inline-flex items-center gap-2 px-3 py-2 bg-white text-red-600 rounded-2xl text-xs font-semibold hover:bg-red-50 shadow-sm border border-gray-200 transition-all">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Удалить
+            </button>
+            {% endif %}
+        </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -184,7 +192,7 @@
                 <form id="comment-form" onsubmit="sendComment(event)" class="flex gap-2 items-end mt-3">
                     <div class="flex-1 relative">
                         <textarea id="comment-input" name="text" rows="2"
-                            placeholder="Добавить комментарий... (введите @ чтобы упомянуть сотрудника)"
+                            placeholder="Добавить комментарий... (введите + чтобы упомянуть сотрудника)"
                             autocomplete="off"
                             class="w-full bg-gray-50 rounded-xl px-3 py-2 text-xs ring-1 ring-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
                             oninput="onCommentInput(event)"
@@ -355,11 +363,11 @@ function onCommentInput(e) {
     const input = e.target;
     const pos = input.selectionStart;
     const textBefore = input.value.slice(0, pos);
-    const at = textBefore.lastIndexOf('@');
+    const at = textBefore.lastIndexOf('+');
     // Recompute which mentioned users are still present in the text.
     const lowered = input.value.toLowerCase();
     STAFF_USERS.forEach(u => {
-        if (mentionedIds.has(u.id) && !lowered.includes('@' + u.name.toLowerCase())) {
+        if (mentionedIds.has(u.id) && !lowered.includes('+' + u.name.toLowerCase())) {
             mentionedIds.delete(u.id);
         }
     });
@@ -401,7 +409,7 @@ function selectMention(userId) {
     const pos = input.selectionStart;
     const before = input.value.slice(0, mentionStart);
     const after = input.value.slice(pos);
-    const insert = '@' + u.name + ' ';
+    const insert = '+' + u.name + ' ';
     input.value = before + insert + after;
     const newPos = (before + insert).length;
     input.setSelectionRange(newPos, newPos);
@@ -469,6 +477,17 @@ async function assignExecutor() {
         status.textContent = 'Сохранено';
         setTimeout(() => { if (status) status.textContent = ''; }, 2000);
     } catch { status.textContent = 'Ошибка сети'; }
+}
+
+async function createRefundFromRequest() {
+    if (!confirm('Создать заявку на возврат из этого запроса?')) return;
+    try {
+        const res = await fetch('/api/requests/' + REQUEST_ID + '/create-refund', { method: 'POST' });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); showToast('Ошибка: ' + (err.detail || 'Не удалось создать возврат'), 'error'); return; }
+        const data = await res.json();
+        showToast('Возврат создан');
+        window.location = '/refunds/' + data.refund_id;
+    } catch { showToast('Ошибка сети', 'error'); }
 }
 
 async function deleteRequest() {

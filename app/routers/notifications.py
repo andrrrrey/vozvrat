@@ -198,7 +198,7 @@ async def nav_badge(request: Request, db: AsyncSession = Depends(get_db)):
         return HTMLResponse("")
     count = await get_unread_messages_count(user, db)
     if count > 0:
-        label = str(count) if count < 100 else "99+"
+        label = str(count)
         return HTMLResponse(
             f'<span id="nav-unread-badge" '
             f'class="ml-auto bg-red-500 text-white text-[10px] font-bold '
@@ -217,7 +217,7 @@ async def requests_nav_badge(request: Request, db: AsyncSession = Depends(get_db
         return HTMLResponse("")
     count = await get_unread_requests_count(user, db)
     if count > 0:
-        label = str(count) if count < 100 else "99+"
+        label = str(count)
         return HTMLResponse(
             f'<span id="nav-requests-badge" '
             f'class="ml-auto bg-red-500 text-white text-[10px] font-bold '
