@@ -193,6 +193,13 @@
                         placeholder="/exchange/vozvrat"
                         class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
                 </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-gray-600 mb-1.5">Папка с прайсом (для автозагрузки)</label>
+                    <input type="text" name="ftp_price_path" value="{{ app_settings.ftp_price_path or '' }}"
+                        placeholder="/exchange/price"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10">
+                    <p class="text-[11px] text-gray-400 mt-1">Папка на FTP, где лежит «Прайс (XLS/XLSX)». Система проверяет её автоматически каждые 2 часа. Путь указывается относительно базового пути.</p>
+                </div>
             </div>
 
             <div class="mt-4">

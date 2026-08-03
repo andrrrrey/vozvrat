@@ -20,6 +20,12 @@ SETTING_KEYS = {
     "ftp_user": "",
     "ftp_password": "",
     "ftp_path": "/",
+    # FTP: папка с прайсом (XLS/XLSX) для автоматической загрузки
+    "ftp_price_path": "",
+    # Метаданные последнего автоскачанного прайса (заполняются автоматически)
+    "price_ftp_last_name": "",
+    "price_ftp_last_at": "",
+    "price_ftp_last_size": "",
     # IMAP (входящая почта). Пустые значения = брать из .env (фолбэк).
     "mail_imap_host": "",
     "mail_imap_port": "",

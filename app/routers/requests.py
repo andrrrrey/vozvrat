@@ -355,8 +355,16 @@ async def create_refund_from_request(
             comment=item.comment,
         ))
 
+    # Закрываем исходный запрос — по нему создана заявка на возврат.
+    status_changed = req.status != RequestStatus.completed
+    req.status = RequestStatus.completed
+
     await db.flush()
     logger.info(f"Refund {refund.display_id} created from request {req.display_id} by user id={user.id}")
+
+    # Уведомить клиента о завершении запроса (best-effort).
+    if status_changed:
+        await _notify_client_status_change(req, request, db)
 
     return JSONResponse({"ok": True, "refund_id": refund.id})
 

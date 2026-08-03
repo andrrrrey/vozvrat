@@ -70,6 +70,23 @@ async def mail_check_job():
             logger.error(f"Mail import job error: {e}", exc_info=True)
 
 
+async def price_download_job():
+    """Каждые 2 часа скачивать прайс по FTP из настроенной папки (если FTP настроен)."""
+    async with AsyncSessionLocal() as db:
+        try:
+            from app.services.settings_service import get_setting
+            from app.services.ftp_service import download_and_cache_price
+            host = (await get_setting(db, "ftp_host")).strip()
+            if not host:
+                return  # FTP не настроен — тихо пропускаем
+            res = await download_and_cache_price(db)
+            await db.commit()
+            logger.info(f"Price auto-download: {res.get('filename')} ({res.get('size')} bytes)")
+        except Exception as e:
+            await db.rollback()
+            logger.warning(f"Price auto-download failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -87,8 +104,16 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
             max_instances=1,
         )
+        scheduler.add_job(
+            price_download_job,
+            trigger=IntervalTrigger(hours=2),
+            id="price_download",
+            replace_existing=True,
+            max_instances=1,
+        )
         scheduler.start()
         logger.info(f"Mail check scheduler started (pid={os.getpid()}, every {settings.MAIL_CHECK_INTERVAL_MINUTES} min)")
+        logger.info("Price FTP auto-download scheduled (every 2 hours)")
         # Seed the heartbeat immediately so the emails page doesn't falsely report
         # "scheduler down" during the first interval window after a restart (the
         # IntervalTrigger only fires its first tick after MAIL_CHECK_INTERVAL_MINUTES).

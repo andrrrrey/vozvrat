@@ -332,6 +332,40 @@ async def send_new_request_email(
     logger.info(f"New-request notification sent to {to_email} for request {request_display_id}")
 
 
+async def send_file_email(
+    db: AsyncSession,
+    to_email: str,
+    subject: str,
+    filename: str,
+    data: bytes,
+    body_text: Optional[str] = None,
+) -> None:
+    """Отправить письмо с вложенным файлом (например, обработанным прайсом)."""
+    smtp = await _get_smtp_settings(db)
+    if not smtp["host"]:
+        raise RuntimeError("SMTP не настроен. Заполните настройки почты в разделе Настройки.")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject or "Файл"
+    msg["From"] = smtp["from_addr"] or smtp["user"]
+    msg["To"] = to_email
+    msg["Date"] = formatdate()
+    msg.set_content(body_text or "Во вложении обработанный файл.", charset="utf-8")
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        maintype, subtype = "application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif ext == ".xls":
+        maintype, subtype = "application", "vnd.ms-excel"
+    else:
+        maintype, subtype = "application", "octet-stream"
+    msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _send_smtp_sync, smtp, msg)
+    logger.info(f"File email sent to {to_email} (subject={subject!r}, file={filename})")
+
+
 async def send_status_change_email(
     db: AsyncSession,
     to_email: str,
