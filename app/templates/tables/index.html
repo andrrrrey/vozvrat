@@ -27,6 +27,17 @@
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Прайс (XLS/XLSX)</label>
                 <input type="file" name="price_file" id="price-file-input" accept=".xls,.xlsx"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-black cursor-pointer">
+                <p class="text-[11px] text-gray-400 mt-1">Загрузите файл с ПК либо оставьте пустым — тогда будет использован прайс, автоматически скачанный по FTP.</p>
+
+                <!-- FTP price auto-download status -->
+                <div class="mt-2 flex flex-wrap items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                    <span id="ftp-price-status" class="text-[11px] text-gray-500 flex-1 min-w-[180px]">Загрузка статуса FTP…</span>
+                    <button type="button" id="ftp-price-refresh-btn" onclick="refreshFtpPrice()"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        Обновить с FTP
+                    </button>
+                </div>
             </div>
 
             <div class="mb-4">
@@ -37,12 +48,38 @@
 
             <div id="tables-result" class="hidden mb-4 p-3 rounded-xl text-sm whitespace-pre-line"></div>
 
-            <div class="flex justify-end">
+            <div class="flex justify-end mb-6">
                 <button type="button" id="tables-enrich-btn" onclick="submitTablesEnrich()"
                     class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-2xl text-sm font-semibold hover:bg-black shadow-lg transition-all">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     Обработать и скачать
                 </button>
+            </div>
+
+            <!-- Отправка обработанного файла на email -->
+            <div class="pt-6 border-t border-gray-100">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Отправить результат на email</p>
+                <p class="text-xs text-gray-400 mb-4">Обработанный файл будет отправлен письмом на указанный адрес.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Email</label>
+                        <input type="email" id="send-email-input" placeholder="recipient@company.ru"
+                            class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Тема</label>
+                        <input type="text" id="send-subject-input" placeholder="Прайс с кодами"
+                            class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none">
+                    </div>
+                </div>
+                <div id="tables-send-result" class="hidden mb-4 p-3 rounded-xl text-sm whitespace-pre-line"></div>
+                <div class="flex justify-end">
+                    <button type="button" id="tables-send-btn" onclick="submitTablesSend()"
+                        class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-2xl text-sm font-semibold hover:bg-indigo-700 shadow-lg transition-all">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        Отправить
+                    </button>
+                </div>
             </div>
         </form>
     </div>
@@ -61,8 +98,8 @@ async function submitTablesEnrich() {
         resultDiv.classList.remove('hidden');
     }
 
-    if (!priceInput.files.length || !codesInput.files.length) {
-        showError('Выберите оба файла: Прайс и таблицу с кодами.');
+    if (!codesInput.files.length) {
+        showError('Выберите таблицу с кодами.');
         return;
     }
 
@@ -72,7 +109,7 @@ async function submitTablesEnrich() {
     resultDiv.classList.add('hidden');
 
     const formData = new FormData();
-    formData.append('price_file', priceInput.files[0]);
+    if (priceInput.files.length) formData.append('price_file', priceInput.files[0]);
     formData.append('codes_file', codesInput.files[0]);
 
     try {
@@ -127,5 +164,103 @@ async function submitTablesEnrich() {
         btn.innerHTML = btnText;
     }
 }
+
+// ---- FTP price auto-download status ----
+function fmtDateTime(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return iso; }
+}
+
+async function loadFtpPriceStatus() {
+    const el = document.getElementById('ftp-price-status');
+    if (!el) return;
+    try {
+        const resp = await fetch('/api/tables/price/status');
+        if (!resp.ok) { el.textContent = 'Статус FTP недоступен.'; return; }
+        const data = await resp.json();
+        if (!data.ftp_configured) {
+            el.textContent = 'FTP не настроен — автозагрузка прайса недоступна. Настройте FTP и папку прайса в разделе «Настройки».';
+        } else if (data.available) {
+            let s = `Прайс с FTP: ${data.filename || 'файл'}`;
+            if (data.downloaded_at) s += ` (обновлён ${fmtDateTime(data.downloaded_at)})`;
+            el.textContent = s;
+        } else {
+            el.textContent = 'Прайс по FTP ещё не скачивался. Нажмите «Обновить с FTP» или дождитесь автопроверки (каждые 2 часа).';
+        }
+    } catch (e) {
+        el.textContent = 'Статус FTP недоступен.';
+    }
+}
+
+async function refreshFtpPrice() {
+    const btn = document.getElementById('ftp-price-refresh-btn');
+    const el = document.getElementById('ftp-price-status');
+    btn.disabled = true;
+    const orig = btn.innerHTML;
+    btn.textContent = 'Загрузка…';
+    try {
+        const resp = await fetch('/api/tables/price/download', { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            if (el) el.textContent = 'Ошибка: ' + (data.detail || 'не удалось скачать прайс по FTP');
+        } else {
+            if (window.showToast) showToast(data.message || 'Прайс загружен по FTP');
+            await loadFtpPriceStatus();
+        }
+    } catch (e) {
+        if (el) el.textContent = 'Ошибка сети при загрузке по FTP.';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+
+// ---- Send processed file by email ----
+async function submitTablesSend() {
+    const priceInput = document.getElementById('price-file-input');
+    const codesInput = document.getElementById('codes-file-input');
+    const emailInput = document.getElementById('send-email-input');
+    const subjectInput = document.getElementById('send-subject-input');
+    const resultDiv = document.getElementById('tables-send-result');
+    const btn = document.getElementById('tables-send-btn');
+
+    function show(msg, ok) {
+        resultDiv.className = 'mb-4 p-3 rounded-xl text-sm whitespace-pre-line ' + (ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700');
+        resultDiv.textContent = msg;
+        resultDiv.classList.remove('hidden');
+    }
+
+    if (!codesInput.files.length) { show('Выберите таблицу с кодами.', false); return; }
+    const email = (emailInput.value || '').trim();
+    if (!email || email.indexOf('@') === -1) { show('Укажите корректный email получателя.', false); return; }
+
+    btn.disabled = true;
+    const btnText = btn.innerHTML;
+    btn.textContent = 'Отправка...';
+    resultDiv.classList.add('hidden');
+
+    const formData = new FormData();
+    if (priceInput.files.length) formData.append('price_file', priceInput.files[0]);
+    formData.append('codes_file', codesInput.files[0]);
+    formData.append('email', email);
+    formData.append('subject', (subjectInput.value || '').trim());
+
+    try {
+        const resp = await fetch('/api/tables/send', { method: 'POST', body: formData });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { show(data.detail || 'Не удалось отправить письмо', false); return; }
+        show(data.message || 'Файл отправлен.', true);
+    } catch (e) {
+        show('Не удалось выполнить запрос: ' + e.message, false);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = btnText;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadFtpPriceStatus);
 </script>
 {% endblock %}

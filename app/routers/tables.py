@@ -1,10 +1,12 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 from io import BytesIO
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import Response, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -210,25 +212,44 @@ def _enrich_price(price_bytes: bytes, codes_map: dict,
     return out.getvalue(), matched, total
 
 
-@router.post("/enrich")
-async def enrich_price_with_codes(
-    request: Request,
-    price_file: UploadFile = File(...),
-    codes_file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Найти артикулы «Прайса» в «таблице с кодами», дописать колонки
-    «код ТЭНВД» и «код ОКПД 2», вернуть готовый файл для скачивания."""
-    user = await get_current_user(request, db)
-    if user.role.value not in ("admin", "staff"):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
+async def _resolve_price(price_file: Optional[UploadFile], db: AsyncSession) -> tuple[bytes, str]:
+    """Вернуть (содержимое_прайса, базовое_имя).
 
+    Если файл прайса загружен вручную — используем его. Иначе берём последний
+    прайс, автоматически скачанный по FTP (раздел «Работа с таблицами» также
+    поддерживает автозагрузку). Бросает HTTPException, если прайса нет."""
+    if price_file is not None and price_file.filename:
+        data = await price_file.read()
+        if data:
+            base = (price_file.filename or "прайс").rsplit(".", 1)[0]
+            return data, base
+
+    # Фолбэк: автоскачанный по FTP прайс.
+    from app.services.ftp_service import price_cache_path
+    from app.services.settings_service import get_setting
+
+    path = price_cache_path()
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=400,
+            detail="Прайс не загружен. Загрузите файл с ПК или настройте автозагрузку по FTP в настройках.",
+        )
+    with open(path, "rb") as f:
+        data = f.read()
+    last_name = (await get_setting(db, "price_ftp_last_name")) or "прайс_ftp.xlsx"
+    base = last_name.rsplit(".", 1)[0]
+    return data, base
+
+
+async def _prepare_enriched(price_file: Optional[UploadFile], codes_file: UploadFile, db: AsyncSession):
+    """Обработать прайс + таблицу кодов. Возвращает
+    (xlsx_bytes, filename, matched, total, layout, codes_count)."""
     _patch_openpyxl_noneset()
 
-    price_bytes = await price_file.read()
+    price_bytes, base_name = await _resolve_price(price_file, db)
     codes_bytes = await codes_file.read()
-    if not price_bytes or not codes_bytes:
-        raise HTTPException(status_code=400, detail="Оба файла обязательны для загрузки.")
+    if not codes_bytes:
+        raise HTTPException(status_code=400, detail="Файл «таблица с кодами» обязателен.")
 
     loop = asyncio.get_event_loop()
 
@@ -239,9 +260,27 @@ async def enrich_price_with_codes(
 
     xlsx_data, matched, total, layout, codes_count = await loop.run_in_executor(None, _process)
 
-    base_name = (price_file.filename or "прайс").rsplit(".", 1)[0]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{base_name}_с_кодами_{ts}.xlsx"
+    return xlsx_data, filename, matched, total, layout, codes_count
+
+
+@router.post("/enrich")
+async def enrich_price_with_codes(
+    request: Request,
+    codes_file: UploadFile = File(...),
+    price_file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Найти артикулы «Прайса» в «таблице с кодами», дописать колонки
+    «код ТЭНВД» и «код ОКПД 2», вернуть готовый файл для скачивания.
+
+    Прайс можно загрузить с ПК либо (если не приложен) взять автоскачанный по FTP."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    xlsx_data, filename, matched, total, layout, codes_count = await _prepare_enriched(price_file, codes_file, db)
 
     from urllib.parse import quote
     ascii_fallback = "price_with_codes.xlsx"
@@ -258,3 +297,95 @@ async def enrich_price_with_codes(
             "X-Codes-Layout": layout,
         },
     )
+
+
+@router.post("/send")
+async def enrich_and_send_email(
+    request: Request,
+    codes_file: UploadFile = File(...),
+    email: str = Form(...),
+    subject: str = Form(""),
+    price_file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Обработать прайс + таблицу кодов и отправить результат письмом на указанный email."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    to_email = (email or "").strip()
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=400, detail="Укажите корректный email получателя.")
+
+    xlsx_data, filename, matched, total, layout, codes_count = await _prepare_enriched(price_file, codes_file, db)
+
+    mail_subject = (subject or "").strip() or "Прайс с кодами ТН ВЭД и ОКПД 2"
+    body = (
+        f"Во вложении обработанный прайс.\n"
+        f"Проставлено кодов: {matched} из {total} позиций. "
+        f"Записей в таблице с кодами: {codes_count}."
+    )
+
+    from app.services.email_service import send_file_email
+    try:
+        await send_file_email(db, to_email, mail_subject, filename, xlsx_data, body_text=body)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to send processed price to {to_email}: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Не удалось отправить письмо: {e}")
+
+    return JSONResponse({
+        "ok": True,
+        "message": f"Файл отправлен на {to_email}. Проставлено кодов: {matched} из {total}.",
+        "matched": matched, "total": total,
+    })
+
+
+@router.get("/price/status")
+async def price_ftp_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Статус автоскачанного по FTP прайса: имя, дата, размер, настроен ли FTP."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from app.services.ftp_service import price_cache_path
+    from app.services.settings_service import get_setting
+
+    name = await get_setting(db, "price_ftp_last_name")
+    at = await get_setting(db, "price_ftp_last_at")
+    size = await get_setting(db, "price_ftp_last_size")
+    folder = await get_setting(db, "ftp_price_path")
+    host = await get_setting(db, "ftp_host")
+    return JSONResponse({
+        "available": bool(name) and os.path.exists(price_cache_path()),
+        "filename": name or None,
+        "downloaded_at": at or None,
+        "size": int(size) if str(size).isdigit() else None,
+        "folder": folder or None,
+        "ftp_configured": bool(host),
+    })
+
+
+@router.post("/price/download")
+async def price_ftp_download_now(request: Request, db: AsyncSession = Depends(get_db)):
+    """Немедленно скачать прайс по FTP из настроенной папки и закешировать локально."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from app.services.ftp_service import download_and_cache_price
+    try:
+        res = await download_and_cache_price(db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Manual FTP price download failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Ошибка загрузки по FTP: {e}")
+
+    return JSONResponse({
+        "ok": True,
+        "message": f"Прайс «{res['filename']}» загружен по FTP.",
+        "filename": res["filename"],
+        "size": res["size"],
+    })

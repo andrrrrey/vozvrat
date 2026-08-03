@@ -497,6 +497,12 @@
     <button onclick="closeImagePreview()" class="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
     </button>
+    <button id="lightbox-prev" onclick="galleryPrev(event)" class="lightbox-nav hidden absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    </button>
+    <button id="lightbox-next" onclick="galleryNext(event)" class="lightbox-nav hidden absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+    </button>
     <div class="max-w-5xl max-h-[90vh] flex flex-col items-center gap-3">
         <img id="image-lightbox-img" src="" alt="" class="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain bg-white">
         <p id="image-lightbox-name" class="text-white/80 text-sm font-medium"></p>
@@ -504,21 +510,59 @@
 </div>
 
 <script>
+let galleryImages = [];
+let galleryIndex = -1;
+function collectGalleryImages() {
+    galleryImages = Array.from(document.querySelectorAll('img[src*="/api/files/"]'))
+        .filter(img => (img.getAttribute('src') || '').indexOf('/preview') !== -1)
+        .map(img => ({ url: img.getAttribute('src'), name: img.getAttribute('alt') || '' }));
+}
+function updateGalleryNav() {
+    const show = galleryImages.length > 1;
+    document.querySelectorAll('.lightbox-nav').forEach(el => { el.style.display = show ? 'flex' : 'none'; });
+}
+function showGalleryImage() {
+    const item = galleryImages[galleryIndex];
+    if (!item) return;
+    document.getElementById('image-lightbox-img').src = item.url;
+    document.getElementById('image-lightbox-name').textContent = item.name || '';
+}
+function galleryPrev(e) {
+    if (e) e.stopPropagation();
+    if (galleryImages.length < 2) return;
+    galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
+    showGalleryImage();
+}
+function galleryNext(e) {
+    if (e) e.stopPropagation();
+    if (galleryImages.length < 2) return;
+    galleryIndex = (galleryIndex + 1) % galleryImages.length;
+    showGalleryImage();
+}
 function openImagePreview(url, name) {
+    collectGalleryImages();
+    galleryIndex = galleryImages.findIndex(g => g.url === url);
+    if (galleryIndex === -1) { galleryImages = [{ url: url, name: name || '' }]; galleryIndex = 0; }
+    showGalleryImage();
     const box = document.getElementById('image-lightbox');
-    document.getElementById('image-lightbox-img').src = url;
-    document.getElementById('image-lightbox-name').textContent = name || '';
     box.classList.remove('hidden');
     box.classList.add('flex');
+    updateGalleryNav();
 }
 function closeImagePreview() {
     const box = document.getElementById('image-lightbox');
     box.classList.add('hidden');
     box.classList.remove('flex');
     document.getElementById('image-lightbox-img').src = '';
+    galleryImages = [];
+    galleryIndex = -1;
 }
 document.addEventListener('keydown', function(e) {
+    const box = document.getElementById('image-lightbox');
+    if (!box || box.classList.contains('hidden')) return;
     if (e.key === 'Escape') closeImagePreview();
+    else if (e.key === 'ArrowLeft') galleryPrev();
+    else if (e.key === 'ArrowRight') galleryNext();
 });
 
 // Collapse client IDs in the card: show only the last one, reveal the rest on demand.

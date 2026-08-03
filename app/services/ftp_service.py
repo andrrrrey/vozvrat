@@ -3,13 +3,14 @@ import logging
 import ftplib
 import asyncio
 import io
+import os
 import csv
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 import openpyxl
 
-from app.services.settings_service import get_setting
+from app.services.settings_service import get_setting, set_setting
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,84 @@ async def upload_1c_xlsx(db: AsyncSession, refunds: list) -> str:
     return await loop.run_in_executor(
         None, _upload_file_to_subdir_sync, cfg, ["Vozvrat1C", "OUT"], remote_name, data
     )
+
+
+def price_cache_path() -> str:
+    """Локальный путь, куда сохраняется последний автоскачанный по FTP прайс."""
+    from app.config import settings as cfg
+    return os.path.join(cfg.UPLOAD_DIR, "price_ftp_cache.xlsx")
+
+
+def _download_latest_price_sync(cfg: dict, price_path: str) -> tuple[str, bytes]:
+    """Скачать самый свежий файл прайса (XLS/XLSX) из указанной папки FTP.
+
+    Возвращает (имя_файла, содержимое). Если файлов несколько — выбирается
+    последний по времени модификации (MDTM), с фолбэком на имя."""
+    ftp = ftplib.FTP()
+    ftp.connect(cfg["host"], cfg["port"], timeout=30)
+    ftp.login(cfg["user"], cfg["password"])
+    try:
+        base = cfg["path"].rstrip("/")
+        if base:
+            try:
+                ftp.cwd(base)
+            except ftplib.error_perm:
+                ftp.mkd(base)
+                ftp.cwd(base)
+        # Перейти во вложенную папку с прайсом, если указана.
+        for part in [p for p in (price_path or "").strip("/").split("/") if p]:
+            ftp.cwd(part)
+
+        names = ftp.nlst()
+        candidates = [os.path.basename(n) for n in names
+                      if n.lower().endswith((".xls", ".xlsx"))]
+        if not candidates:
+            raise ValueError("В указанной папке FTP не найден файл прайса (XLS/XLSX).")
+
+        def _mtime(name: str) -> str:
+            try:
+                resp = ftp.sendcmd("MDTM " + name)  # "213 20240101120000"
+                parts = resp.split()
+                return parts[1] if len(parts) > 1 else ""
+            except Exception:
+                return ""
+
+        candidates.sort(key=lambda n: (_mtime(n), n))
+        chosen = candidates[-1]
+
+        bio = io.BytesIO()
+        ftp.retrbinary("RETR " + chosen, bio.write)
+        return chosen, bio.getvalue()
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+
+
+async def download_and_cache_price(db: AsyncSession) -> dict:
+    """Скачать прайс по FTP из папки `ftp_price_path` и сохранить локально.
+
+    Записывает метаданные в настройки (`price_ftp_last_name/at/size`).
+    Возвращает {filename, size}. Бросает ValueError при отсутствии настроек/файла."""
+    cfg = await _get_ftp_settings(db)
+    if not cfg["host"]:
+        raise ValueError("FTP не настроен")
+    price_path = (await get_setting(db, "ftp_price_path")).strip()
+
+    loop = asyncio.get_event_loop()
+    filename, data = await loop.run_in_executor(None, _download_latest_price_sync, cfg, price_path)
+
+    path = price_cache_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data)
+
+    await set_setting(db, "price_ftp_last_name", filename)
+    await set_setting(db, "price_ftp_last_at", datetime.now(timezone.utc).isoformat())
+    await set_setting(db, "price_ftp_last_size", str(len(data)))
+    logger.info(f"Price downloaded from FTP: {filename} ({len(data)} bytes)")
+    return {"filename": filename, "size": len(data)}
 
 
 def _build_1c_csv(refunds: list) -> bytes:
