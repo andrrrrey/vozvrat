@@ -212,6 +212,32 @@ def _enrich_price(price_bytes: bytes, codes_map: dict,
     return out.getvalue(), matched, total
 
 
+def codes_cache_path() -> str:
+    """Локальный путь, куда сохраняется загруженная в систему «таблица с кодами»."""
+    from app.config import settings as cfg
+    return os.path.join(cfg.UPLOAD_DIR, "codes_saved.xlsx")
+
+
+async def _resolve_codes(codes_file: Optional[UploadFile], db: AsyncSession) -> bytes:
+    """Вернуть содержимое «таблицы с кодами».
+
+    Если файл загружен вручную — используем его. Иначе берём ранее сохранённую
+    в системе таблицу с кодами. Бросает HTTPException, если таблицы нет."""
+    if codes_file is not None and codes_file.filename:
+        data = await codes_file.read()
+        if data:
+            return data
+
+    path = codes_cache_path()
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=400,
+            detail="Таблица с кодами не загружена. Загрузите файл с ПК или сохраните его в системе.",
+        )
+    with open(path, "rb") as f:
+        return f.read()
+
+
 async def _resolve_price(price_file: Optional[UploadFile], db: AsyncSession) -> tuple[bytes, str]:
     """Вернуть (содержимое_прайса, базовое_имя).
 
@@ -241,15 +267,13 @@ async def _resolve_price(price_file: Optional[UploadFile], db: AsyncSession) -> 
     return data, base
 
 
-async def _prepare_enriched(price_file: Optional[UploadFile], codes_file: UploadFile, db: AsyncSession):
+async def _prepare_enriched(price_file: Optional[UploadFile], codes_file: Optional[UploadFile], db: AsyncSession):
     """Обработать прайс + таблицу кодов. Возвращает
     (xlsx_bytes, filename, matched, total, layout, codes_count)."""
     _patch_openpyxl_noneset()
 
     price_bytes, base_name = await _resolve_price(price_file, db)
-    codes_bytes = await codes_file.read()
-    if not codes_bytes:
-        raise HTTPException(status_code=400, detail="Файл «таблица с кодами» обязателен.")
+    codes_bytes = await _resolve_codes(codes_file, db)
 
     loop = asyncio.get_event_loop()
 
@@ -268,14 +292,15 @@ async def _prepare_enriched(price_file: Optional[UploadFile], codes_file: Upload
 @router.post("/enrich")
 async def enrich_price_with_codes(
     request: Request,
-    codes_file: UploadFile = File(...),
+    codes_file: Optional[UploadFile] = File(None),
     price_file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Найти артикулы «Прайса» в «таблице с кодами», дописать колонки
     «код ТЭНВД» и «код ОКПД 2», вернуть готовый файл для скачивания.
 
-    Прайс можно загрузить с ПК либо (если не приложен) взять автоскачанный по FTP."""
+    Прайс можно загрузить с ПК либо (если не приложен) взять автоскачанный по FTP.
+    Таблицу с кодами можно загрузить с ПК либо взять ранее сохранённую в системе."""
     user = await get_current_user(request, db)
     if user.role.value not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -302,9 +327,9 @@ async def enrich_price_with_codes(
 @router.post("/send")
 async def enrich_and_send_email(
     request: Request,
-    codes_file: UploadFile = File(...),
     email: str = Form(...),
     subject: str = Form(""),
+    codes_file: Optional[UploadFile] = File(None),
     price_file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -389,3 +414,87 @@ async def price_ftp_download_now(request: Request, db: AsyncSession = Depends(ge
         "filename": res["filename"],
         "size": res["size"],
     })
+
+
+@router.get("/codes/status")
+async def codes_saved_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Статус сохранённой в системе «таблицы с кодами»: имя, дата, размер."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from app.services.settings_service import get_setting
+
+    name = await get_setting(db, "codes_saved_name")
+    at = await get_setting(db, "codes_saved_at")
+    size = await get_setting(db, "codes_saved_size")
+    return JSONResponse({
+        "available": bool(name) and os.path.exists(codes_cache_path()),
+        "filename": name or None,
+        "saved_at": at or None,
+        "size": int(size) if str(size).isdigit() else None,
+    })
+
+
+@router.post("/codes/save")
+async def codes_save(
+    request: Request,
+    codes_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохранить загруженную «таблицу с кодами» в системе для повторного использования."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    if not codes_file or not codes_file.filename:
+        raise HTTPException(status_code=400, detail="Выберите файл «таблица с кодами».")
+    data = await codes_file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Файл пустой.")
+
+    # Валидируем, что файл читается как таблица с кодами.
+    _patch_openpyxl_noneset()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _build_codes_map, data)
+
+    path = codes_cache_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data)
+
+    from datetime import timezone
+    from app.services.settings_service import set_setting
+    await set_setting(db, "codes_saved_name", codes_file.filename)
+    await set_setting(db, "codes_saved_at", datetime.now(timezone.utc).isoformat())
+    await set_setting(db, "codes_saved_size", str(len(data)))
+    logger.info(f"Codes table saved in system: {codes_file.filename} ({len(data)} bytes)")
+
+    return JSONResponse({
+        "ok": True,
+        "message": f"Таблица с кодами «{codes_file.filename}» сохранена.",
+        "filename": codes_file.filename,
+        "size": len(data),
+    })
+
+
+@router.delete("/codes")
+async def codes_delete(request: Request, db: AsyncSession = Depends(get_db)):
+    """Удалить сохранённую в системе «таблицу с кодами»."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    path = codes_cache_path()
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.warning(f"Could not remove saved codes file: {e}")
+
+    from app.services.settings_service import set_setting
+    await set_setting(db, "codes_saved_name", "")
+    await set_setting(db, "codes_saved_at", "")
+    await set_setting(db, "codes_saved_size", "")
+
+    return JSONResponse({"ok": True, "message": "Сохранённая таблица с кодами удалена."})
