@@ -26,6 +26,10 @@ SETTING_KEYS = {
     "price_ftp_last_name": "",
     "price_ftp_last_at": "",
     "price_ftp_last_size": "",
+    # Метаданные сохранённой в системе «таблицы с кодами» (заполняются автоматически)
+    "codes_saved_name": "",
+    "codes_saved_at": "",
+    "codes_saved_size": "",
     # IMAP (входящая почта). Пустые значения = брать из .env (фолбэк).
     "mail_imap_host": "",
     "mail_imap_port": "",

@@ -44,6 +44,22 @@
                 <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Таблица с кодами (XLS/XLSX)</label>
                 <input type="file" name="codes_file" id="codes-file-input" accept=".xls,.xlsx"
                     class="w-full bg-gray-50 rounded-xl px-3 py-2 text-sm ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-900 file:text-white hover:file:bg-black cursor-pointer">
+                <p class="text-[11px] text-gray-400 mt-1">Загрузите файл с ПК либо оставьте пустым — тогда будет использована таблица, сохранённая в системе.</p>
+
+                <!-- Saved codes table status -->
+                <div class="mt-2 flex flex-wrap items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                    <span id="codes-saved-status" class="text-[11px] text-gray-500 flex-1 min-w-[180px]">Загрузка статуса…</span>
+                    <button type="button" id="codes-save-btn" onclick="saveCodes()"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Сохранить в системе
+                    </button>
+                    <button type="button" id="codes-delete-btn" onclick="deleteCodes()"
+                        class="hidden inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-white border border-gray-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        Удалить
+                    </button>
+                </div>
             </div>
 
             <div id="tables-result" class="hidden mb-4 p-3 rounded-xl text-sm whitespace-pre-line"></div>
@@ -86,6 +102,8 @@
 </div>
 
 <script>
+let codesSaved = false;
+
 async function submitTablesEnrich() {
     const priceInput = document.getElementById('price-file-input');
     const codesInput = document.getElementById('codes-file-input');
@@ -98,8 +116,8 @@ async function submitTablesEnrich() {
         resultDiv.classList.remove('hidden');
     }
 
-    if (!codesInput.files.length) {
-        showError('Выберите таблицу с кодами.');
+    if (!codesInput.files.length && !codesSaved) {
+        showError('Выберите таблицу с кодами или сохраните её в системе.');
         return;
     }
 
@@ -110,7 +128,7 @@ async function submitTablesEnrich() {
 
     const formData = new FormData();
     if (priceInput.files.length) formData.append('price_file', priceInput.files[0]);
-    formData.append('codes_file', codesInput.files[0]);
+    if (codesInput.files.length) formData.append('codes_file', codesInput.files[0]);
 
     try {
         const resp = await fetch('/api/tables/enrich', { method: 'POST', body: formData });
@@ -233,7 +251,7 @@ async function submitTablesSend() {
         resultDiv.classList.remove('hidden');
     }
 
-    if (!codesInput.files.length) { show('Выберите таблицу с кодами.', false); return; }
+    if (!codesInput.files.length && !codesSaved) { show('Выберите таблицу с кодами или сохраните её в системе.', false); return; }
     const email = (emailInput.value || '').trim();
     if (!email || email.indexOf('@') === -1) { show('Укажите корректный email получателя.', false); return; }
 
@@ -244,7 +262,7 @@ async function submitTablesSend() {
 
     const formData = new FormData();
     if (priceInput.files.length) formData.append('price_file', priceInput.files[0]);
-    formData.append('codes_file', codesInput.files[0]);
+    if (codesInput.files.length) formData.append('codes_file', codesInput.files[0]);
     formData.append('email', email);
     formData.append('subject', (subjectInput.value || '').trim());
 
@@ -261,6 +279,84 @@ async function submitTablesSend() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', loadFtpPriceStatus);
+// ---- Saved codes table ----
+async function loadCodesStatus() {
+    const el = document.getElementById('codes-saved-status');
+    const delBtn = document.getElementById('codes-delete-btn');
+    if (!el) return;
+    try {
+        const resp = await fetch('/api/tables/codes/status');
+        if (!resp.ok) { el.textContent = 'Статус недоступен.'; return; }
+        const data = await resp.json();
+        codesSaved = !!data.available;
+        if (data.available) {
+            let s = `Сохранено в системе: ${data.filename || 'файл'}`;
+            if (data.saved_at) s += ` (${fmtDateTime(data.saved_at)})`;
+            el.textContent = s;
+            if (delBtn) delBtn.classList.remove('hidden');
+        } else {
+            el.textContent = 'Таблица с кодами не сохранена. Выберите файл и нажмите «Сохранить в системе».';
+            if (delBtn) delBtn.classList.add('hidden');
+        }
+    } catch (e) {
+        el.textContent = 'Статус недоступен.';
+    }
+}
+
+async function saveCodes() {
+    const codesInput = document.getElementById('codes-file-input');
+    const el = document.getElementById('codes-saved-status');
+    const btn = document.getElementById('codes-save-btn');
+    if (!codesInput.files.length) {
+        if (el) el.textContent = 'Сначала выберите файл «таблица с кодами» для сохранения.';
+        return;
+    }
+    btn.disabled = true;
+    const orig = btn.innerHTML;
+    btn.textContent = 'Сохранение…';
+    try {
+        const fd = new FormData();
+        fd.append('codes_file', codesInput.files[0]);
+        const resp = await fetch('/api/tables/codes/save', { method: 'POST', body: fd });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            if (el) el.textContent = 'Ошибка: ' + (data.detail || 'не удалось сохранить файл');
+        } else {
+            if (window.showToast) showToast(data.message || 'Таблица с кодами сохранена');
+            await loadCodesStatus();
+        }
+    } catch (e) {
+        if (el) el.textContent = 'Ошибка сети при сохранении.';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    }
+}
+
+async function deleteCodes() {
+    if (!confirm('Удалить сохранённую в системе таблицу с кодами?')) return;
+    const el = document.getElementById('codes-saved-status');
+    const btn = document.getElementById('codes-delete-btn');
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/tables/codes', { method: 'DELETE' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            if (el) el.textContent = 'Ошибка: ' + (data.detail || 'не удалось удалить');
+        } else {
+            if (window.showToast) showToast(data.message || 'Таблица с кодами удалена');
+            await loadCodesStatus();
+        }
+    } catch (e) {
+        if (el) el.textContent = 'Ошибка сети при удалении.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadFtpPriceStatus();
+    loadCodesStatus();
+});
 </script>
 {% endblock %}
