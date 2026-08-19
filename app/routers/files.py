@@ -124,7 +124,21 @@ async def delete_file(
 
     refund_id = attachment.refund_id
     request_id = attachment.request_id
+    message_id = attachment.message_id
     was_internal = bool(attachment.is_internal)
+
+    # Фото из комментария: удаляют только сотрудники, возвращаем простой ответ.
+    if message_id is not None and refund_id is None and request_id is None:
+        if user.role.value not in ("admin", "staff"):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
+        if os.path.exists(attachment.stored_path):
+            try:
+                os.remove(attachment.stored_path)
+            except OSError as e:
+                logger.warning(f"Could not delete comment photo from disk: {e}")
+        await db.delete(attachment)
+        await db.commit()
+        return JSONResponse({"ok": True})
 
     # Клиент может удалять только свои не-внутренние файлы на своих возврате/запросе.
     if user.role.value == "client":

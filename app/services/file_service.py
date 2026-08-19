@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 import logging
 from pathlib import Path
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 ALLOWED_EXTENSIONS = {".xls", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png", ".webp"}
+
+# Только изображения — для фото в комментариях.
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 # Map image extensions to their MIME types for inline browser preview.
 IMAGE_MIME_TYPES = {
@@ -41,7 +45,7 @@ def detect_file_type(filename: str) -> FileType:
     ext = Path(filename).suffix.lower()
     if ext in (".xls", ".xlsx"):
         return FileType.xls
-    elif ext in (".jpg", ".jpeg", ".png", ".webp"):
+    elif ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
         return FileType.photo
     elif ext == ".pdf":
         return FileType.pdf_ukd
@@ -65,18 +69,22 @@ async def save_file(
     uploaded_by_id: Optional[int] = None,
     is_internal: bool = False,
     request_id: Optional[int] = None,
+    message_id: Optional[int] = None,
+    allowed_extensions: Optional[set] = None,
 ) -> FileAttachment:
-    """Save an uploaded file attached either to a refund or to a request.
+    """Save an uploaded file attached to a refund, a request or a comment (message).
 
-    Exactly one of refund_id / request_id must be set."""
-    if (refund_id is None) == (request_id is None):
+    Exactly one of refund_id / request_id / message_id must be set."""
+    owners = [x for x in (refund_id, request_id, message_id) if x is not None]
+    if len(owners) != 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Файл должен быть привязан либо к возврату, либо к запросу",
+            detail="Файл должен быть привязан к возврату, запросу или комментарию",
         )
 
+    allowed = allowed_extensions if allowed_extensions is not None else ALLOWED_EXTENSIONS
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
+    if ext not in allowed:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Недопустимый тип файла. Разрешены: XLS, XLSX, PDF, JPG, PNG",
@@ -91,7 +99,12 @@ async def save_file(
             detail=f"Файл слишком большой. Максимум {settings.MAX_UPLOAD_SIZE_MB} МБ",
         )
 
-    subdir = f"refund_{refund_id}" if refund_id is not None else f"request_{request_id}"
+    if refund_id is not None:
+        subdir = f"refund_{refund_id}"
+    elif request_id is not None:
+        subdir = f"request_{request_id}"
+    else:
+        subdir = f"comment_{message_id}"
     target_dir = Path(settings.UPLOAD_DIR) / subdir
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,6 +119,7 @@ async def save_file(
     attachment = FileAttachment(
         refund_id=refund_id,
         request_id=request_id,
+        message_id=message_id,
         filename=file.filename or unique_name,
         stored_path=stored_path,
         file_type=file_type,
@@ -117,6 +131,48 @@ async def save_file(
     await db.flush()
     await db.refresh(attachment)
     logger.info(f"Saved file {file.filename} for {subdir}, type={file_type}")
+    return attachment
+
+
+async def copy_file_to_refund(
+    source: FileAttachment,
+    refund_id: int,
+    db: AsyncSession,
+    uploaded_by_id: Optional[int] = None,
+) -> Optional[FileAttachment]:
+    """Скопировать вложение (файл на диске + запись) на указанный возврат.
+
+    Используется при создании возврата из запроса, чтобы перенести приложенные
+    к запросу фото/файлы. Возвращает новую запись FileAttachment или None, если
+    исходный файл отсутствует на диске."""
+    if not source.stored_path or not os.path.exists(source.stored_path):
+        logger.warning(
+            f"copy_file_to_refund: source file missing on disk ({source.stored_path}); skipping"
+        )
+        return None
+
+    target_dir = Path(settings.UPLOAD_DIR) / f"refund_{refund_id}"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(source.stored_path).suffix.lower()
+    unique_name = f"{uuid.uuid4().hex}{ext}"
+    dest_path = str(target_dir / unique_name)
+
+    shutil.copy2(source.stored_path, dest_path)
+
+    attachment = FileAttachment(
+        refund_id=refund_id,
+        filename=source.filename,
+        stored_path=dest_path,
+        file_type=source.file_type,
+        file_size=source.file_size,
+        uploaded_by_id=uploaded_by_id,
+        is_internal=bool(source.is_internal),
+    )
+    db.add(attachment)
+    await db.flush()
+    await db.refresh(attachment)
+    logger.info(f"Copied file {source.filename} to refund_{refund_id}")
     return attachment
 
 
@@ -140,6 +196,12 @@ async def get_file_for_download(
     if user_role == "client":
         # Internal files are never accessible to clients.
         if attachment.is_internal:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Нет доступа к этому файлу",
+            )
+        # Фото из staff-only комментариев клиентам недоступны.
+        if attachment.message_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Нет доступа к этому файлу",

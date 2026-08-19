@@ -4,7 +4,23 @@
     <div class="comment-item flex flex-col {% if comment.user_id == user.id %}items-end{% else %}items-start{% endif %}"
         data-search="{{ (comment.text ~ ' ' ~ comment.user.full_name) | lower | e }}">
         <div class="{% if comment.user_id == user.id %}bg-amber-50 text-gray-800{% else %}bg-gray-100 text-gray-800{% endif %} rounded-xl px-3 py-2 max-w-[95%]">
+            {% if comment.text %}
             <p class="text-xs leading-relaxed whitespace-pre-wrap break-words">{{ comment.text }}</p>
+            {% endif %}
+            {% if comment.files %}
+            <div class="flex flex-wrap gap-1.5 {% if comment.text %}mt-1.5{% endif %}">
+                {% for f in comment.files %}
+                {% if f.is_image %}
+                <a href="/api/files/{{ f.id }}/preview" target="_blank" rel="noopener" title="{{ f.filename }}">
+                    <img src="/api/files/{{ f.id }}/preview" alt="{{ f.filename }}"
+                        class="w-20 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity">
+                </a>
+                {% else %}
+                <a href="/api/files/{{ f.id }}/download" class="text-[11px] text-indigo-600 underline">{{ f.filename }}</a>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         <div class="flex items-center gap-1.5 mt-0.5 px-1">
             <span class="text-[10px] text-gray-400">{{ comment.user.full_name }}</span>

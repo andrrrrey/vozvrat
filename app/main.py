@@ -82,6 +82,10 @@ async def price_download_job():
             res = await download_and_cache_price(db)
             await db.commit()
             logger.info(f"Price auto-download: {res.get('filename')} ({res.get('size')} bytes)")
+            # «Полный автомат»: после обновления прайса — обработать и отправить на email.
+            from app.routers.tables import maybe_run_full_auto
+            await maybe_run_full_auto(db, bool(res.get("changed")))
+            await db.commit()
         except Exception as e:
             await db.rollback()
             logger.warning(f"Price auto-download failed: {e}")

@@ -289,6 +289,63 @@ async def _prepare_enriched(price_file: Optional[UploadFile], codes_file: Option
     return xlsx_data, filename, matched, total, layout, codes_count
 
 
+async def run_full_auto(db: AsyncSession) -> dict:
+    """«Полный автомат»: взять прайс, автоскачанный по FTP, и сохранённую в системе
+    таблицу с кодами, обработать и отправить результат письмом на настроенный email.
+
+    Возвращает {ok, message, matched, total}. Бросает HTTPException/RuntimeError
+    при отсутствии данных или ошибке отправки."""
+    from app.services.settings_service import get_setting, set_setting
+    from app.services.email_service import send_file_email
+
+    to_email = (await get_setting(db, "tables_auto_full_email")).strip()
+    if not to_email or "@" not in to_email:
+        raise HTTPException(status_code=400, detail="Для «Полного автомата» не указан корректный email.")
+
+    # price_file=None, codes_file=None → берём FTP-прайс и сохранённую таблицу кодов.
+    xlsx_data, filename, matched, total, layout, codes_count = await _prepare_enriched(None, None, db)
+
+    subject = (await get_setting(db, "tables_auto_full_subject")).strip() or "Прайс с кодами ТН ВЭД и ОКПД 2"
+    body = (
+        f"Автоматически обработанный прайс (Полный автомат).\n"
+        f"Проставлено кодов: {matched} из {total} позиций. "
+        f"Записей в таблице с кодами: {codes_count}."
+    )
+    await send_file_email(db, to_email, subject, filename, xlsx_data, body_text=body)
+
+    result_msg = f"Отправлено на {to_email}. Проставлено кодов: {matched} из {total}."
+    await set_setting(db, "tables_auto_full_last_at", datetime.now().astimezone().isoformat())
+    await set_setting(db, "tables_auto_full_last_result", result_msg)
+    logger.info(f"Full-auto: {result_msg} (file={filename})")
+    return {"ok": True, "message": result_msg, "matched": matched, "total": total}
+
+
+async def maybe_run_full_auto(db: AsyncSession, changed: bool) -> None:
+    """Запустить «Полный автомат» после обновления прайса по FTP, если он включён,
+    указан email и файл действительно изменился. Никогда не бросает исключение —
+    ошибку логируем и сохраняем в настройках."""
+    from app.services.settings_service import get_setting, set_setting
+
+    enabled = (await get_setting(db, "tables_auto_full_enabled")).lower() == "true"
+    if not enabled:
+        return
+    if not changed:
+        logger.info("Full-auto: прайс по FTP не изменился — пропускаем автообработку.")
+        return
+    try:
+        await run_full_auto(db)
+    except HTTPException as e:
+        msg = f"Ошибка «Полного автомата»: {e.detail}"
+        logger.warning(msg)
+        await set_setting(db, "tables_auto_full_last_at", datetime.now().astimezone().isoformat())
+        await set_setting(db, "tables_auto_full_last_result", msg)
+    except Exception as e:
+        msg = f"Ошибка «Полного автомата»: {e}"
+        logger.error(msg, exc_info=True)
+        await set_setting(db, "tables_auto_full_last_at", datetime.now().astimezone().isoformat())
+        await set_setting(db, "tables_auto_full_last_result", msg)
+
+
 @router.post("/enrich")
 async def enrich_price_with_codes(
     request: Request,
@@ -408,12 +465,83 @@ async def price_ftp_download_now(request: Request, db: AsyncSession = Depends(ge
         logger.error(f"Manual FTP price download failed: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Ошибка загрузки по FTP: {e}")
 
+    # «Полный автомат»: если включён и файл изменился — обработать и отправить.
+    await maybe_run_full_auto(db, bool(res.get("changed")))
+
     return JSONResponse({
         "ok": True,
         "message": f"Прайс «{res['filename']}» загружен по FTP.",
         "filename": res["filename"],
         "size": res["size"],
     })
+
+
+@router.get("/auto")
+async def auto_full_status(request: Request, db: AsyncSession = Depends(get_db)):
+    """Текущие настройки «Полного автомата»."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    from app.services.settings_service import get_setting
+    enabled = (await get_setting(db, "tables_auto_full_enabled")).lower() == "true"
+    return JSONResponse({
+        "enabled": enabled,
+        "email": await get_setting(db, "tables_auto_full_email"),
+        "subject": await get_setting(db, "tables_auto_full_subject"),
+        "last_at": (await get_setting(db, "tables_auto_full_last_at")) or None,
+        "last_result": (await get_setting(db, "tables_auto_full_last_result")) or None,
+    })
+
+
+@router.post("/auto")
+async def auto_full_save(
+    request: Request,
+    enabled: str = Form("false"),
+    email: str = Form(""),
+    subject: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохранить настройки «Полного автомата». При включении обязателен email."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    is_enabled = str(enabled).lower() in ("true", "1", "on")
+    to_email = (email or "").strip()
+    if is_enabled and (not to_email or "@" not in to_email):
+        raise HTTPException(status_code=400, detail="Чтобы включить «Полный автомат», укажите корректный email.")
+
+    from app.services.settings_service import set_setting
+    await set_setting(db, "tables_auto_full_enabled", "true" if is_enabled else "false")
+    await set_setting(db, "tables_auto_full_email", to_email)
+    await set_setting(db, "tables_auto_full_subject", (subject or "").strip())
+
+    return JSONResponse({
+        "ok": True,
+        "enabled": is_enabled,
+        "message": "«Полный автомат» включён." if is_enabled else "«Полный автомат» выключен.",
+    })
+
+
+@router.post("/auto/run")
+async def auto_full_run_now(request: Request, db: AsyncSession = Depends(get_db)):
+    """Запустить «Полный автомат» немедленно (без ожидания обновления FTP)."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+    _patch_openpyxl_noneset()
+    try:
+        res = await run_full_auto(db)
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Manual full-auto run failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Ошибка: {e}")
+    return JSONResponse(res)
 
 
 @router.get("/codes/status")

@@ -162,8 +162,12 @@ def _download_latest_price_sync(cfg: dict, price_path: str) -> tuple[str, bytes]
 async def download_and_cache_price(db: AsyncSession) -> dict:
     """Скачать прайс по FTP из папки `ftp_price_path` и сохранить локально.
 
-    Записывает метаданные в настройки (`price_ftp_last_name/at/size`).
-    Возвращает {filename, size}. Бросает ValueError при отсутствии настроек/файла."""
+    Записывает метаданные в настройки (`price_ftp_last_name/at/size/hash`).
+    Возвращает {filename, size, changed}, где `changed` — True, если содержимое
+    файла отличается от ранее скачанного. Бросает ValueError при отсутствии
+    настроек/файла."""
+    import hashlib
+
     cfg = await _get_ftp_settings(db)
     if not cfg["host"]:
         raise ValueError("FTP не настроен")
@@ -177,11 +181,16 @@ async def download_and_cache_price(db: AsyncSession) -> dict:
     with open(path, "wb") as f:
         f.write(data)
 
+    new_hash = hashlib.sha256(data).hexdigest()
+    prev_hash = await get_setting(db, "price_ftp_last_hash")
+    changed = new_hash != prev_hash
+
     await set_setting(db, "price_ftp_last_name", filename)
     await set_setting(db, "price_ftp_last_at", datetime.now(timezone.utc).isoformat())
     await set_setting(db, "price_ftp_last_size", str(len(data)))
-    logger.info(f"Price downloaded from FTP: {filename} ({len(data)} bytes)")
-    return {"filename": filename, "size": len(data)}
+    await set_setting(db, "price_ftp_last_hash", new_hash)
+    logger.info(f"Price downloaded from FTP: {filename} ({len(data)} bytes, changed={changed})")
+    return {"filename": filename, "size": len(data), "changed": changed}
 
 
 def _build_1c_csv(refunds: list) -> bytes:

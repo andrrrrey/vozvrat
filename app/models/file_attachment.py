@@ -25,9 +25,11 @@ class FileAttachment(Base):
     __tablename__ = "file_attachments"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    # Файл принадлежит либо возврату, либо запросу (ровно одному из них).
+    # Файл принадлежит возврату, запросу или комментарию (сообщению).
     refund_id: Mapped[Optional[int]] = mapped_column(ForeignKey("refunds.id"), nullable=True, index=True)
     request_id: Mapped[Optional[int]] = mapped_column(ForeignKey("requests.id"), nullable=True, index=True)
+    # Фото, прикреплённое к комментарию (staff-only сообщению).
+    message_id: Mapped[Optional[int]] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     stored_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_type: Mapped[FileType] = mapped_column(
@@ -42,6 +44,7 @@ class FileAttachment(Base):
     # Relationships
     refund: Mapped[Optional["Refund"]] = relationship("Refund", back_populates="files")
     request: Mapped[Optional["Request"]] = relationship("Request", back_populates="files")
+    message: Mapped[Optional["Message"]] = relationship("Message", back_populates="files")
     uploaded_by: Mapped[Optional["User"]] = relationship("User", back_populates="uploaded_files")
 
     @property
