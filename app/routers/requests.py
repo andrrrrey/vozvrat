@@ -319,6 +319,7 @@ async def create_refund_from_request(
         select(RequestModel).options(
             selectinload(RequestModel.items),
             selectinload(RequestModel.client_user),
+            selectinload(RequestModel.files),
         ).where(RequestModel.id == request_id)
     )
     req = result.scalar_one_or_none()
@@ -354,6 +355,19 @@ async def create_refund_from_request(
             position_id=item.position_id,
             comment=item.comment,
         ))
+
+    # Переносим прикреплённые к запросу файлы (фото и др.) на новый возврат.
+    from app.services.file_service import copy_file_to_refund
+    copied = 0
+    for src in req.files:
+        try:
+            res = await copy_file_to_refund(src, refund.id, db, uploaded_by_id=user.id)
+            if res is not None:
+                copied += 1
+        except Exception as e:
+            logger.warning(f"Could not copy file id={src.id} from request {req.display_id} to refund: {e}")
+    if req.files:
+        logger.info(f"Transferred {copied}/{len(req.files)} files from request {req.display_id} to refund {refund.display_id}")
 
     # Закрываем исходный запрос — по нему создана заявка на возврат.
     status_changed = req.status != RequestStatus.completed
@@ -540,7 +554,10 @@ async def _load_request_messages(request_id: int, db: AsyncSession) -> list[Mess
 
 
 async def _load_request_comments(request_id: int, db: AsyncSession) -> list[Message]:
-    q = select(Message).options(selectinload(Message.user)).where(
+    q = select(Message).options(
+        selectinload(Message.user),
+        selectinload(Message.files),
+    ).where(
         Message.request_id == request_id,
         Message.visibility == MessageVisibility.staff_only,
     ).order_by(Message.created_at.asc())
@@ -629,11 +646,28 @@ async def post_request_comment(request_id: int, request: Request, db: AsyncSessi
 
     form = await request.form()
     text = str(form.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Текст комментария пустой")
+    photos = [f for f in form.getlist("photos") if getattr(f, "filename", "")]
+    if not text and not photos:
+        raise HTTPException(status_code=400, detail="Добавьте текст или фотографию")
 
     msg = Message(request_id=request_id, user_id=user.id, text=text, visibility=MessageVisibility.staff_only)
     db.add(msg)
+    await db.flush()
+
+    # Прикрепляем фотографии к комментарию (если есть).
+    if photos:
+        from app.services.file_service import save_file, IMAGE_EXTENSIONS
+        for photo in photos:
+            try:
+                await save_file(
+                    photo, None, db, uploaded_by_id=user.id,
+                    message_id=msg.id, allowed_extensions=IMAGE_EXTENSIONS,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Could not attach comment photo to request {request_id}: {e}")
+
     await db.commit()
     await mark_request_read(request_id, user.id, db)
 

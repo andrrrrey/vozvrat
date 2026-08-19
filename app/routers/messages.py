@@ -177,7 +177,10 @@ async def _notify_new_chat_message(
 
 
 async def _load_comments(refund_id: int, db: AsyncSession) -> list[Message]:
-    q = select(Message).options(selectinload(Message.user)).where(
+    q = select(Message).options(
+        selectinload(Message.user),
+        selectinload(Message.files),
+    ).where(
         Message.refund_id == refund_id,
         Message.visibility == MessageVisibility.staff_only,
     ).order_by(Message.created_at.asc())
@@ -225,8 +228,9 @@ async def post_comment(
 
     form = await request.form()
     text = str(form.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Текст комментария пустой")
+    photos = [f for f in form.getlist("photos") if getattr(f, "filename", "")]
+    if not text and not photos:
+        raise HTTPException(status_code=400, detail="Добавьте текст или фотографию")
 
     msg = Message(
         refund_id=refund_id,
@@ -235,6 +239,22 @@ async def post_comment(
         visibility=MessageVisibility.staff_only,
     )
     db.add(msg)
+    await db.flush()
+
+    # Прикрепляем фотографии к комментарию (если есть).
+    if photos:
+        from app.services.file_service import save_file, IMAGE_EXTENSIONS
+        for photo in photos:
+            try:
+                await save_file(
+                    photo, None, db, uploaded_by_id=user.id,
+                    message_id=msg.id, allowed_extensions=IMAGE_EXTENSIONS,
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Could not attach comment photo to refund {refund_id}: {e}")
+
     await db.commit()
     await mark_refund_read(refund_id, user.id, db)
 

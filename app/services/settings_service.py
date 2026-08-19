@@ -26,10 +26,20 @@ SETTING_KEYS = {
     "price_ftp_last_name": "",
     "price_ftp_last_at": "",
     "price_ftp_last_size": "",
+    # Хэш содержимого последнего автоскачанного прайса — чтобы определять обновление файла
+    "price_ftp_last_hash": "",
     # Метаданные сохранённой в системе «таблицы с кодами» (заполняются автоматически)
     "codes_saved_name": "",
     "codes_saved_at": "",
     "codes_saved_size": "",
+    # «Полный автомат»: после обновления прайса по FTP автоматически обработать
+    # (прайс с FTP + сохранённая таблица кодов) и отправить результат на email.
+    "tables_auto_full_enabled": "false",
+    "tables_auto_full_email": "",
+    "tables_auto_full_subject": "",
+    # Время/итог последнего автозапуска «Полного автомата» (заполняются автоматически)
+    "tables_auto_full_last_at": "",
+    "tables_auto_full_last_result": "",
     # IMAP (входящая почта). Пустые значения = брать из .env (фолбэк).
     "mail_imap_host": "",
     "mail_imap_port": "",

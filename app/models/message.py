@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import String, Text, Enum, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -29,3 +29,7 @@ class Message(Base):
     refund: Mapped[Optional["Refund"]] = relationship("Refund", back_populates="messages")
     request: Mapped[Optional["Request"]] = relationship("Request", back_populates="messages")
     user: Mapped["User"] = relationship("User", back_populates="messages")
+    # Фото, прикреплённые к комментарию.
+    files: Mapped[List["FileAttachment"]] = relationship(
+        "FileAttachment", back_populates="message", cascade="all, delete-orphan"
+    )
