@@ -14,6 +14,7 @@ from app.models.supplier import Supplier
 from app.models.user import User, UserRole
 from app.schemas.refund import RefundResponse, RefundStatusUpdate
 from app.services.auth import get_current_user
+from app.services.access import restrict_by_manager, staff_can_access_client
 from app.services.file_service import save_file
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ async def list_refunds(
         query = query.where(Refund.client_user_id == user.id)
 
     query = build_refund_filter(query, status, supplier_id_int, client_name, date_from)
+    query = restrict_by_manager(query, user, Refund.client_user_id)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -200,6 +202,7 @@ async def refunds_table_partial(
         query = query.where(Refund.client_user_id == user.id)
 
     query = build_refund_filter(query, status, supplier_id_int, client_name, date, article, order_id)
+    query = restrict_by_manager(query, user, Refund.client_user_id)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -246,6 +249,9 @@ async def create_refund(
     client_user = client_result.scalar_one_or_none()
     if not client_user:
         raise HTTPException(status_code=400, detail="Клиент не найден")
+    # Сотрудник может создавать возврат только для своих клиентов.
+    if not await staff_can_access_client(db, user, client_user_id):
+        raise HTTPException(status_code=403, detail="Этот клиент не закреплён за вами")
     client_name = client_user.full_name
     order_id = str(form.get("order_id", "")).strip() or None
     reason = str(form.get("reason", "")).strip() or None
@@ -367,6 +373,10 @@ async def get_refund(
     refund = result.scalar_one_or_none()
 
     if not refund:
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
+    # Сотрудник может получать только возвраты своих клиентов.
+    if not await staff_can_access_client(db, user, refund.client_user_id):
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
     return refund
@@ -656,12 +666,19 @@ async def assign_client_user(
     if not refund:
         raise HTTPException(status_code=404, detail="Возврат не найден")
 
+    # Сотрудник может менять привязку только у возвратов своих клиентов.
+    if not await staff_can_access_client(db, user, refund.client_user_id):
+        raise HTTPException(status_code=404, detail="Возврат не найден")
+
     if client_user_id:
         from app.models.user import User
         client_result = await db.execute(select(User).where(User.id == client_user_id))
         client = client_result.scalar_one_or_none()
         if not client:
             raise HTTPException(status_code=404, detail="Клиент не найден")
+        # Сотрудник может привязывать возврат только к своим клиентам.
+        if not await staff_can_access_client(db, user, client_user_id):
+            raise HTTPException(status_code=403, detail="Этот клиент не закреплён за вами")
         refund.client_user_id = client_user_id
     else:
         refund.client_user_id = None

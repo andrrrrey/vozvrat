@@ -154,8 +154,8 @@
                 <div class="mt-4">
                     <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
                         <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                        <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
-                        <input type="file" name="file" data-internal="false" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                        <p class="text-xs text-gray-400 font-medium">Перетащите файлы или нажмите для загрузки</p>
+                        <input type="file" name="file" data-internal="false" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
                     </label>
                 </div>
                 {% endif %}
@@ -176,8 +176,8 @@
                 <div class="mt-4">
                     <label class="flex flex-col items-center justify-center border-2 border-dashed border-amber-200 rounded-2xl p-6 text-center cursor-pointer hover:border-amber-300 hover:bg-amber-50/40 transition-all">
                         <svg class="w-8 h-8 text-amber-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-                        <p class="text-xs text-amber-500 font-medium">Загрузить внутренний файл</p>
-                        <input type="file" name="file" data-internal="true" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                        <p class="text-xs text-amber-500 font-medium">Загрузить внутренние файлы</p>
+                        <input type="file" name="file" data-internal="true" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
                     </label>
                 </div>
             </div>
@@ -318,19 +318,28 @@ document.addEventListener('keydown', function(e) {
     else if (e.key === 'ArrowRight') galleryNext();
 });
 
-// File upload
+// File upload (несколько файлов за раз)
 document.addEventListener('change', function(e) {
     if (e.target.type === 'file' && e.target.name === 'file') {
         const input = e.target;
-        const file = input.files[0];
-        if (!file) return;
+        const allFiles = Array.from(input.files);
+        if (!allFiles.length) return;
         const isInternal = input.dataset.internal === 'true';
         const targetId = isInternal ? 'internal-files-list' : 'files-list';
-        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-        if (!ALLOWED_EXTS_UPLOAD.has(ext)) { if (window.showToast) showToast('Недопустимый формат файла', 'error'); input.value = ''; return; }
-        if (file.size > MAX_UPLOAD_SIZE) { if (window.showToast) showToast('Файл превышает 20 МБ', 'error'); input.value = ''; return; }
+        const valid = [];
+        allFiles.forEach(file => {
+            const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+            if (!ALLOWED_EXTS_UPLOAD.has(ext)) {
+                if (window.showToast) showToast(file.name + ' — недопустимый формат', 'error');
+            } else if (file.size > MAX_UPLOAD_SIZE) {
+                if (window.showToast) showToast(file.name + ' — превышает 20 МБ', 'error');
+            } else {
+                valid.push(file);
+            }
+        });
+        if (!valid.length) { input.value = ''; return; }
         const formData = new FormData();
-        formData.append('file', file);
+        valid.forEach(file => formData.append('file', file));
         formData.append('internal', isInternal ? 'true' : 'false');
         fetch('/api/files/upload-request/' + REQUEST_ID, { method: 'POST', body: formData })
             .then(r => r.text())
@@ -338,7 +347,7 @@ document.addEventListener('change', function(e) {
                 const target = document.getElementById(targetId);
                 if (target) target.innerHTML = html;
                 input.value = '';
-                if (window.showToast) showToast('Файл загружен успешно');
+                if (window.showToast) showToast(valid.length > 1 ? 'Файлы загружены успешно' : 'Файл загружен успешно');
             })
             .catch(() => { if (window.showToast) showToast('Ошибка загрузки файла', 'error'); });
     }

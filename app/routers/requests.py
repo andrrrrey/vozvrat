@@ -17,6 +17,9 @@ from app.models.request import Request as RequestModel, RequestItem, RequestStat
 from app.models.message import Message, MessageVisibility
 from app.models.user import User, UserRole
 from app.services.auth import get_current_user
+from app.services.access import (
+    restrict_requests_by_manager, staff_can_access_client, staff_can_access_request,
+)
 from app.services.file_service import save_file
 from app.routers.notifications import mark_request_read, get_unread_per_request
 
@@ -101,6 +104,8 @@ async def requests_table_partial(
         query = query.where(RequestModel.status != RequestStatus.completed)
 
     query = build_request_filter(query, status, executor_id_int, client_name, date, article, order_id)
+    # Сотрудник видит запросы своих клиентов (а также свои/назначенные ему).
+    query = restrict_requests_by_manager(query, user)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -158,6 +163,14 @@ async def create_request(
         client_user = client_result.scalar_one_or_none()
         if not client_user:
             raise HTTPException(status_code=400, detail="Клиент не найден")
+        # Сотрудник может создавать запрос для клиента только если тот закреплён за ним.
+        # Выбор сотрудника-заявителя (staff_user_id) под это ограничение не попадает.
+        if (
+            not staff_user_id
+            and client_user.role == UserRole.client
+            and not await staff_can_access_client(db, user, client_user_id)
+        ):
+            raise HTTPException(status_code=403, detail="Этот клиент не закреплён за вами")
     if not client_user:
         client_user_id = None
     client_name = client_user.full_name if client_user else "Без клиента"
@@ -421,6 +434,10 @@ async def assign_client(
     if not req:
         raise HTTPException(status_code=404, detail="Запрос не найден")
 
+    # Сотрудник может менять заявителя только у доступных ему запросов.
+    if not await staff_can_access_request(db, user, req):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+
     previous_client_id = req.client_user_id
 
     if client_user_id:
@@ -431,6 +448,12 @@ async def assign_client(
         client_user = client_result.scalar_one_or_none()
         if not client_user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
+        # Сотрудник может привязать запрос к клиенту только если тот закреплён за ним.
+        if (
+            client_user.role == UserRole.client
+            and not await staff_can_access_client(db, user, client_user.id)
+        ):
+            raise HTTPException(status_code=403, detail="Этот клиент не закреплён за вами")
         req.client_user_id = client_user.id
         req.client_name = client_user.full_name
     else:
@@ -572,6 +595,9 @@ async def _get_request_for_user(request_id: int, user, db: AsyncSession) -> Requ
     result = await db.execute(q)
     req = result.scalar_one_or_none()
     if not req:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    # Сотрудник видит только доступные ему запросы (свои клиенты / свои / назначенные).
+    if not await staff_can_access_request(db, user, req):
         raise HTTPException(status_code=404, detail="Запрос не найден")
     return req
 

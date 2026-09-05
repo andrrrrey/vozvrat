@@ -44,11 +44,23 @@
 
         <div>
             <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Роль</label>
-            <select name="role" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+            <select name="role" id="user-role-select" onchange="toggleManagerField(this.value)" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
                 <option value="staff" {% if target_user and target_user.role.value == 'staff' %}selected{% endif %}>Сотрудник</option>
                 <option value="admin" {% if target_user and target_user.role.value == 'admin' %}selected{% endif %}>Администратор</option>
                 <option value="client" {% if target_user and target_user.role.value == 'client' %}selected{% endif %}>Клиент</option>
             </select>
+        </div>
+
+        <!-- Менеджер клиента (только для роли «Клиент») -->
+        <div id="manager-field" {% if not (target_user and target_user.role.value == 'client') %}class="hidden"{% endif %}>
+            <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1.5">Менеджер клиента</label>
+            <select name="manager_id" class="w-full bg-gray-50 rounded-2xl px-4 py-3 ring-1 ring-gray-200 focus:ring-2 focus:ring-black focus:outline-none text-sm">
+                <option value="">— Не назначен —</option>
+                {% for m in managers %}
+                <option value="{{ m.id }}" {% if target_user and target_user.manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+                {% endfor %}
+            </select>
+            <p class="text-[11px] text-gray-400 mt-1.5">Сотрудник видит только своих клиентов и их возвраты/запросы.</p>
         </div>
 
         {% if target_user %}

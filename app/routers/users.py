@@ -22,6 +22,31 @@ async def require_admin(request: Request, db: AsyncSession = Depends(get_db)) ->
     return user
 
 
+async def _resolve_manager_id(db: AsyncSession, raw) -> Optional[int]:
+    """Validate a manager_id form value; return the id of an active staff/admin or None."""
+    if raw is None or not str(raw).strip().isdigit():
+        return None
+    manager_id = int(raw)
+    result = await db.execute(
+        select(User).where(
+            User.id == manager_id,
+            User.role.in_([UserRole.admin, UserRole.staff]),
+        )
+    )
+    return manager_id if result.scalar_one_or_none() else None
+
+
+async def _staff_and_admins(db: AsyncSession):
+    """Active staff/admin users, ordered by name — candidate managers for clients."""
+    result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.admin, UserRole.staff]),
+            User.is_active == True,
+        ).order_by(User.full_name)
+    )
+    return result.scalars().all()
+
+
 @router.get("", response_model=List[UserResponse])
 async def list_users(
     request: Request,
@@ -68,11 +93,14 @@ async def create_user(
     except ValueError:
         role = UserRole.staff
 
+    manager_id = await _resolve_manager_id(db, form.get("manager_id"))
+
     user = User(
         email=email,
         password_hash=hash_password(password),
         full_name=full_name,
         role=role,
+        manager_id=manager_id if role == UserRole.client else None,
     )
     db.add(user)
     await db.flush()
@@ -123,6 +151,13 @@ async def update_user(
     if password:
         user.password_hash = hash_password(password)
     user.is_active = is_active
+
+    # Менеджер значим только для клиентов; у сотрудников/админов всегда сбрасываем.
+    if user.role == UserRole.client:
+        if "manager_id" in form:
+            user.manager_id = await _resolve_manager_id(db, form.get("manager_id"))
+    else:
+        user.manager_id = None
 
     await db.flush()
     await db.refresh(user)
@@ -216,9 +251,14 @@ async def get_user_form(
             )
             client_ids = cids_result.scalars().all()
 
+    managers = await _staff_and_admins(db)
+
     return templates.TemplateResponse(
         "users/_form_modal.html",
-        {"request": request, "target_user": target_user, "roles": UserRole, "client_ids": client_ids},
+        {
+            "request": request, "target_user": target_user, "roles": UserRole,
+            "client_ids": client_ids, "managers": managers,
+        },
     )
 
 

@@ -14,6 +14,10 @@ from app.models.refund import Refund, RefundStatus, RefundSource
 from app.models.supplier import Supplier
 from app.models.file_attachment import FileType
 from app.services.auth import get_current_user, COOKIE_NAME
+from app.services.access import (
+    restrict_by_manager, restrict_requests_by_manager,
+    clients_for_user_query, staff_can_access_client, staff_can_access_request,
+)
 from app.routers.notifications import get_unread_per_refund, mark_refund_read
 
 logger = logging.getLogger(__name__)
@@ -58,31 +62,20 @@ async def statistics_page(request: Request, db: AsyncSession = Depends(get_db)):
     if user.role.value == "client":
         return RedirectResponse(url="/client/refunds", status_code=302)
 
-    received_count = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.received)
-    )).scalar() or 0
+    # Сотрудник видит статистику только по своим клиентам.
+    async def _count(*conditions) -> int:
+        q = select(func.count(Refund.id)).where(*conditions)
+        q = restrict_by_manager(q, user, Refund.client_user_id)
+        return (await db.execute(q)).scalar() or 0
 
-    approved_count = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.approved)
-    )).scalar() or 0
-
-    new_from_mail = (await db.execute(
-        select(func.count(Refund.id)).where(
-            and_(Refund.source == RefundSource.email, Refund.status == RefundStatus.received)
-        )
-    )).scalar() or 0
-
-    rejected_count = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.rejected)
-    )).scalar() or 0
-
-    waiting_count = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.waiting_for_part)
-    )).scalar() or 0
-
-    archive_count = (await db.execute(
-        select(func.count(Refund.id)).where(Refund.status == RefundStatus.archive)
-    )).scalar() or 0
+    received_count = await _count(Refund.status == RefundStatus.received)
+    approved_count = await _count(Refund.status == RefundStatus.approved)
+    new_from_mail = await _count(
+        Refund.source == RefundSource.email, Refund.status == RefundStatus.received
+    )
+    rejected_count = await _count(Refund.status == RefundStatus.rejected)
+    waiting_count = await _count(Refund.status == RefundStatus.waiting_for_part)
+    archive_count = await _count(Refund.status == RefundStatus.archive)
 
     return templates.TemplateResponse("statistics.html", {
         "request": request,
@@ -127,6 +120,8 @@ async def refunds_page(
 
     # Same filter logic as the /api/refunds/table partial, kept in sync via build_refund_filter.
     query = build_refund_filter(query, status, supplier_id, client_name, date, article, order_id)
+    # Сотрудник видит только возвраты своих клиентов.
+    query = restrict_by_manager(query, user, Refund.client_user_id)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -176,9 +171,7 @@ async def create_refund_page(request: Request, db: AsyncSession = Depends(get_db
     )
     suppliers = suppliers_result.scalars().all()
 
-    clients_result = await db.execute(
-        select(User).where(User.role == UserRole.client, User.is_active == True).order_by(User.full_name)
-    )
+    clients_result = await db.execute(clients_for_user_query(user))
     clients = clients_result.scalars().all()
 
     return templates.TemplateResponse("refunds/create.html", {
@@ -215,14 +208,16 @@ async def refund_detail_page(
     if not refund:
         return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
 
+    # Сотрудник может открывать только возвраты своих клиентов.
+    if not await staff_can_access_client(db, user, refund.client_user_id):
+        return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
+
     await mark_refund_read(refund_id, user.id, db)
 
     from app.models.user import User as UserModel, UserRole
     from app.models.user_client_id import UserClientId
     from app.services.settings_service import get_setting
-    clients_result = await db.execute(
-        select(UserModel).where(UserModel.role == UserRole.client, UserModel.is_active == True).order_by(UserModel.full_name)
-    )
+    clients_result = await db.execute(clients_for_user_query(user))
     clients = clients_result.scalars().all()
     auto_invite = (await get_setting(db, "auto_create_client_on_assign")).lower() == "true"
 
@@ -312,7 +307,9 @@ async def users_page(request: Request, db: AsyncSession = Depends(get_db)):
     if user.role.value != "admin":
         return RedirectResponse(url="/refunds", status_code=302)
 
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    result = await db.execute(
+        select(User).options(selectinload(User.manager)).order_by(User.created_at.desc())
+    )
     users = result.scalars().all()
 
     return templates.TemplateResponse("users/list.html", {
@@ -578,6 +575,8 @@ async def requests_page(
         query = query.where(RequestModel.status != RequestStatus.completed)
 
     query = build_request_filter(query, status, executor_id, client_name, date, article, order_id)
+    # Сотрудник видит запросы своих клиентов (а также свои/назначенные ему).
+    query = restrict_requests_by_manager(query, user)
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -627,9 +626,7 @@ async def create_request_page(request: Request, db: AsyncSession = Depends(get_d
         return RedirectResponse(url="/requests", status_code=302)
 
     from app.models.user import User as UserModel, UserRole
-    clients_result = await db.execute(
-        select(UserModel).where(UserModel.role == UserRole.client, UserModel.is_active == True).order_by(UserModel.full_name)
-    )
+    clients_result = await db.execute(clients_for_user_query(user))
     clients = clients_result.scalars().all()
     executors_result = await db.execute(
         select(UserModel).where(
@@ -676,6 +673,10 @@ async def request_detail_page(request_id: int, request: Request, db: AsyncSessio
     if not req:
         return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
 
+    # Сотрудник может открывать только запросы своих клиентов (или свои/назначенные).
+    if not await staff_can_access_request(db, user, req):
+        return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
+
     await mark_request_read(request_id, user.id, db)
 
     executors_result = await db.execute(
@@ -688,12 +689,7 @@ async def request_detail_page(request_id: int, request: Request, db: AsyncSessio
 
     staff_users = executors  # для @упоминаний во внутренних комментариях
 
-    clients_result = await db.execute(
-        select(UserModel).where(
-            UserModel.role == UserRole.client,
-            UserModel.is_active == True,
-        ).order_by(UserModel.full_name)
-    )
+    clients_result = await db.execute(clients_for_user_query(user))
     clients = clients_result.scalars().all()
 
     public_files = sorted([f for f in req.files if not f.is_internal], key=lambda f: f.id)

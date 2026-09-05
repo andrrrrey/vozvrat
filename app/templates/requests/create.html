@@ -88,10 +88,11 @@
                         <label class="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-[28px] p-8 text-center cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
                             <svg class="w-10 h-10 text-gray-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                             <p class="text-sm text-gray-400 font-medium">Перетащите файлы или нажмите для выбора</p>
-                            <p class="text-xs text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG, WEBP (до 20 МБ)</p>
-                            <div id="file-names" class="mt-2 text-xs font-medium space-y-0.5"></div>
-                            <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" onchange="showFileNames(this)">
+                            <p class="text-xs text-gray-300 mt-1">Можно добавлять по одному — выбранные файлы накапливаются · XLS, XLSX, PDF, JPG, PNG, WEBP (до 20 МБ)</p>
+                            <input type="file" name="file" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" onchange="addFiles(this)">
                         </label>
+                        <div id="file-preview" class="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-4"></div>
+                        <div id="file-errors" class="mt-2 text-xs font-medium space-y-0.5"></div>
                     </div>
                 </div>
 
@@ -111,9 +112,72 @@
 </div>
 
 <script>
-function showFileNames(input) {
-    const div = document.getElementById('file-names');
-    div.innerHTML = Array.from(input.files).map(f => `<p class="text-gray-500">${f.name}</p>`).join('');
+const ALLOWED_EXTS = new Set(['.xls', '.xlsx', '.pdf', '.jpg', '.jpeg', '.png', '.webp']);
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const MAX_SIZE = 20 * 1024 * 1024;
+
+// Накапливаем выбранные файлы между несколькими вызовами выбора,
+// чтобы можно было добавлять фото по одному, не теряя предыдущие.
+let selectedFiles = [];
+
+function extOf(name) { return name.slice(name.lastIndexOf('.')).toLowerCase(); }
+
+function syncInput() {
+    const dt = new DataTransfer();
+    selectedFiles.forEach(f => dt.items.add(f));
+    document.querySelector('input[name="file"]').files = dt.files;
+}
+
+function addFiles(input) {
+    const errors = [];
+    Array.from(input.files).forEach(f => {
+        const ext = extOf(f.name);
+        if (!ALLOWED_EXTS.has(ext)) {
+            errors.push(`<p class="text-red-500">${f.name} — недопустимый формат</p>`);
+        } else if (f.size > MAX_SIZE) {
+            errors.push(`<p class="text-red-500">${f.name} — превышает 20 МБ</p>`);
+        } else if (!selectedFiles.some(s => s.name === f.name && s.size === f.size)) {
+            selectedFiles.push(f);
+        }
+    });
+    document.getElementById('file-errors').innerHTML = errors.join('');
+    syncInput();
+    renderPreview();
+}
+
+function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    syncInput();
+    renderPreview();
+}
+
+function renderPreview() {
+    const grid = document.getElementById('file-preview');
+    grid.innerHTML = '';
+    selectedFiles.forEach((f, idx) => {
+        const cell = document.createElement('div');
+        cell.className = 'relative group rounded-2xl overflow-hidden ring-1 ring-gray-200 bg-gray-50 aspect-square flex items-center justify-center';
+        if (IMAGE_EXTS.has(extOf(f.name))) {
+            const img = document.createElement('img');
+            img.className = 'w-full h-full object-cover';
+            img.src = URL.createObjectURL(f);
+            img.onload = () => URL.revokeObjectURL(img.src);
+            cell.appendChild(img);
+        } else {
+            cell.innerHTML = `<div class="flex flex-col items-center px-2 text-center">
+                <svg class="w-7 h-7 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                <span class="text-[10px] text-gray-500 break-all leading-tight">${f.name}</span>
+            </div>`;
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.title = 'Удалить';
+        btn.className = 'absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-black/60 text-white rounded-full hover:bg-black transition-colors';
+        btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+        btn.onclick = () => removeFile(idx);
+        cell.appendChild(btn);
+        grid.appendChild(cell);
+    });
 }
 
 // Клиент и сотрудник-заявитель взаимоисключающие: выбор одного сбрасывает другой.
