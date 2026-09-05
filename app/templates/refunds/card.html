@@ -303,7 +303,7 @@
                         <svg class="w-8 h-8 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                         <p class="text-xs text-gray-400 font-medium">Перетащите файл или нажмите для загрузки</p>
                         <p class="text-[10px] text-gray-300 mt-1">XLS, XLSX, PDF, JPG, PNG, WEBP до {{ settings.MAX_UPLOAD_SIZE_MB if settings else 20 }} МБ</p>
-                        <input type="file" name="file" data-internal="false" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                        <input type="file" name="file" data-internal="false" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
                     </label>
                 </div>
                 {% endif %}
@@ -329,7 +329,7 @@
                         <svg class="w-8 h-8 text-amber-200 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
                         <p class="text-xs text-amber-500 font-medium">Загрузить внутренний файл</p>
                         <p class="text-[10px] text-amber-300 mt-1">Виден только сотрудникам · XLS, XLSX, PDF, JPG, PNG, WEBP</p>
-                        <input type="file" name="file" data-internal="true" class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
+                        <input type="file" name="file" data-internal="true" multiple class="hidden" accept=".xls,.xlsx,.pdf,.jpg,.jpeg,.png,.webp">
                     </label>
                 </div>
             </div>
@@ -790,26 +790,28 @@ const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
 document.addEventListener('change', function(e) {
     if (e.target.type === 'file' && e.target.name === 'file') {
         const input = e.target;
-        const file = input.files[0];
-        if (!file) return;
+        const allFiles = Array.from(input.files);
+        if (!allFiles.length) return;
 
         const isInternal = input.dataset.internal === 'true';
         const targetId = isInternal ? 'internal-files-list' : 'files-list';
 
-        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-        if (!ALLOWED_EXTS_UPLOAD.has(ext)) {
-            if (window.showToast) showToast('Недопустимый формат файла. Разрешены: XLS, XLSX, PDF, JPG, PNG, WEBP', 'error');
-            input.value = '';
-            return;
-        }
-        if (file.size > MAX_UPLOAD_SIZE) {
-            if (window.showToast) showToast('Файл превышает 20 МБ', 'error');
-            input.value = '';
-            return;
-        }
+        // Валидируем каждый файл; отклонённые — пропускаем с уведомлением.
+        const valid = [];
+        allFiles.forEach(file => {
+            const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+            if (!ALLOWED_EXTS_UPLOAD.has(ext)) {
+                if (window.showToast) showToast(file.name + ' — недопустимый формат', 'error');
+            } else if (file.size > MAX_UPLOAD_SIZE) {
+                if (window.showToast) showToast(file.name + ' — превышает 20 МБ', 'error');
+            } else {
+                valid.push(file);
+            }
+        });
+        if (!valid.length) { input.value = ''; return; }
 
         const formData = new FormData();
-        formData.append('file', file);
+        valid.forEach(file => formData.append('file', file));
         formData.append('internal', isInternal ? 'true' : 'false');
 
         fetch('/api/files/upload/{{ refund.id }}', {
@@ -821,7 +823,7 @@ document.addEventListener('change', function(e) {
             const target = document.getElementById(targetId);
             if (target) target.innerHTML = html;
             input.value = '';
-            if (window.showToast) showToast('Файл загружен успешно');
+            if (window.showToast) showToast(valid.length > 1 ? 'Файлы загружены успешно' : 'Файл загружен успешно');
         })
         .catch(() => {
             if (window.showToast) showToast('Ошибка загрузки файла', 'error');

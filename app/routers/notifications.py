@@ -56,6 +56,11 @@ async def get_unread_messages_count(user: User, db: AsyncSession) -> int:
                 )
             ),
         )
+    else:
+        from app.services.access import staff_refund_scope_exists
+        scope = staff_refund_scope_exists(user)
+        if scope is not None:
+            q = q.where(scope)
     return (await db.execute(q)).scalar() or 0
 
 
@@ -80,6 +85,11 @@ async def get_unread_requests_count(user: User, db: AsyncSession) -> int:
                 )
             ),
         )
+    else:
+        from app.services.access import staff_request_scope_exists
+        scope = staff_request_scope_exists(user)
+        if scope is not None:
+            q = q.where(scope)
     return (await db.execute(q)).scalar() or 0
 
 
@@ -119,6 +129,11 @@ async def get_unread_per_refund(user: User, db: AsyncSession) -> dict[int, int]:
                 )
             ),
         )
+    else:
+        from app.services.access import staff_refund_scope_exists
+        scope = staff_refund_scope_exists(user)
+        if scope is not None:
+            q = q.where(scope)
     result = await db.execute(q)
     return {row[0]: row[1] for row in result.all()}
 
@@ -145,6 +160,11 @@ async def get_unread_per_request(user: User, db: AsyncSession) -> dict[int, int]
                 )
             ),
         )
+    else:
+        from app.services.access import staff_request_scope_exists
+        scope = staff_request_scope_exists(user)
+        if scope is not None:
+            q = q.where(scope)
     result = await db.execute(q)
     return {row[0]: row[1] for row in result.all()}
 
@@ -272,6 +292,13 @@ async def recent_notifications(request: Request, db: AsyncSession = Depends(get_
         .order_by(Message.created_at.desc())
         .limit(10)
     )
+    # Сотрудник видит уведомления только по доступным ему возвратам/запросам.
+    from app.services.access import staff_refund_scope_exists, staff_request_scope_exists
+    from sqlalchemy import or_
+    refund_scope = staff_refund_scope_exists(user)
+    request_scope = staff_request_scope_exists(user)
+    if refund_scope is not None and request_scope is not None:
+        q = q.where(or_(refund_scope, request_scope))
     result = await db.execute(q)
     messages = result.scalars().all()
 

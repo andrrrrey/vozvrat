@@ -1,7 +1,7 @@
 import logging
 import os
 from urllib.parse import quote
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from app.models.refund import Refund
 from app.models.request import Request as RequestModel
 from app.models.file_attachment import FileAttachment
 from app.services.auth import get_current_user
+from app.services.access import staff_can_access_client, staff_can_access_request
 from app.services.file_service import save_file, get_file_for_download, guess_media_type
 
 logger = logging.getLogger(__name__)
@@ -48,8 +49,6 @@ def _render_files_section(request, refund, user, is_internal):
 async def upload_file(
     refund_id: int,
     request: Request,
-    file: UploadFile = File(...),
-    internal: str = Form("false"),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_current_user(request, db)
@@ -61,13 +60,21 @@ async def upload_file(
 
     if user.role.value == "client" and refund.client_user_id != user.id:
         raise HTTPException(status_code=403, detail="Нет доступа к этому возврату")
+    if not await staff_can_access_client(db, user, refund.client_user_id):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому возврату")
 
-    is_internal = str(internal).lower() in ("true", "1", "on")
+    form = await request.form()
+    is_internal = str(form.get("internal", "false")).lower() in ("true", "1", "on")
     # Only staff/admin may upload internal files.
     if is_internal and user.role.value not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
-    await save_file(file, refund_id, db, uploaded_by_id=user.id, is_internal=is_internal)
+    # Принимаем сразу несколько файлов (поле "file" может повторяться).
+    files = [v for _, v in form.multi_items() if hasattr(v, "filename") and v.filename]
+    if not files:
+        raise HTTPException(status_code=400, detail="Не выбраны файлы")
+    for f in files:
+        await save_file(f, refund_id, db, uploaded_by_id=user.id, is_internal=is_internal)
 
     result2 = await db.execute(
         select(Refund).options(selectinload(Refund.files)).where(Refund.id == refund_id)
@@ -81,8 +88,6 @@ async def upload_file(
 async def upload_request_file(
     request_id: int,
     request: Request,
-    file: UploadFile = File(...),
-    internal: str = Form("false"),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_current_user(request, db)
@@ -94,12 +99,19 @@ async def upload_request_file(
 
     if user.role.value == "client" and req.client_user_id != user.id:
         raise HTTPException(status_code=403, detail="Нет доступа к этому запросу")
+    if not await staff_can_access_request(db, user, req):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому запросу")
 
-    is_internal = str(internal).lower() in ("true", "1", "on")
+    form = await request.form()
+    is_internal = str(form.get("internal", "false")).lower() in ("true", "1", "on")
     if is_internal and user.role.value not in ("admin", "staff"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
 
-    await save_file(file, None, db, uploaded_by_id=user.id, is_internal=is_internal, request_id=request_id)
+    files = [v for _, v in form.multi_items() if hasattr(v, "filename") and v.filename]
+    if not files:
+        raise HTTPException(status_code=400, detail="Не выбраны файлы")
+    for f in files:
+        await save_file(f, None, db, uploaded_by_id=user.id, is_internal=is_internal, request_id=request_id)
 
     result2 = await db.execute(
         select(RequestModel).options(selectinload(RequestModel.files)).where(RequestModel.id == request_id)

@@ -59,6 +59,11 @@
                             <div>
                                 <p class="font-semibold text-sm text-gray-900">{{ u.full_name }}</p>
                                 <p class="text-xs text-gray-400">{{ u.email }}</p>
+                                {% if u.role.value == 'client' %}
+                                <p class="text-[11px] mt-0.5 {% if u.manager %}text-blue-600{% else %}text-amber-500{% endif %}">
+                                    Менеджер: {{ u.manager.full_name if u.manager else 'не назначен' }}
+                                </p>
+                                {% endif %}
                             </div>
                         </div>
                     </td>
@@ -148,6 +153,12 @@ function clearFilters() {
     document.getElementById('search-input').value = '';
     document.getElementById('role-filter').value = '';
     filterUsers();
+}
+
+// Показывать поле «Менеджер клиента» только для роли «Клиент».
+function toggleManagerField(role) {
+    const field = document.getElementById('manager-field');
+    if (field) field.classList.toggle('hidden', role !== 'client');
 }
 
 function openUserModal(userId) {
