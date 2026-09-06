@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Клиенты{% endblock %}
+
+{% block content %}
+<div class="p-6 md:p-8 animate-screen">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Клиенты</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                {% if user.role.value == 'admin' %}Все клиенты системы{% else %}Ваши клиенты и свободные (без менеджера){% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-3 mb-4">
+        <input id="search-input" type="text" placeholder="Поиск по имени или email…"
+            oninput="filterClients()"
+            class="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/10 w-64">
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full">
+            <thead>
+                <tr class="bg-gray-50/50 border-b border-gray-100">
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Имя / Контакт</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Менеджер</th>
+                    <th class="text-left px-6 py-4 text-[11px] uppercase font-bold text-gray-400 tracking-wider">Действие</th>
+                </tr>
+            </thead>
+            <tbody id="clients-tbody">
+                {% for c in clients %}
+                <tr class="client-row border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                    data-name="{{ c.full_name | lower }}"
+                    data-email="{{ c.email | lower }}">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
+                                {{ c.full_name[0].upper() if c.full_name else 'К' }}
+                            </div>
+                            <div>
+                                <p class="font-semibold text-sm text-gray-900">{{ c.full_name }}</p>
+                                <p class="text-xs text-gray-400">{{ c.email }}</p>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if c.manager %}
+                            {% if c.manager_id == user.id %}
+                            <span class="text-blue-600 font-semibold text-sm">Вы</span>
+                            {% else %}
+                            <span class="text-gray-700 text-sm">{{ c.manager.full_name }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-amber-500 text-sm">не назначен</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4">
+                        {% if c.manager_id == user.id %}
+                        <button onclick="releaseSelf({{ c.id }})"
+                            class="text-red-400 font-bold text-xs uppercase hover:text-red-600">
+                            Открепить
+                        </button>
+                        {% elif not c.manager %}
+                        <button onclick="assignSelf({{ c.id }})"
+                            class="text-blue-500 font-bold text-xs uppercase hover:text-blue-700">
+                            Взять себе
+                        </button>
+                        {% elif user.role.value == 'admin' %}
+                        <div class="flex items-center gap-3">
+                            <button onclick="assignSelf({{ c.id }})"
+                                class="text-blue-500 font-bold text-xs uppercase hover:text-blue-700">
+                                Забрать себе
+                            </button>
+                            <button onclick="releaseSelf({{ c.id }})"
+                                class="text-red-400 font-bold text-xs uppercase hover:text-red-600">
+                                Открепить
+                            </button>
+                        </div>
+                        {% else %}
+                        <span class="text-gray-300 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="px-6 py-12 text-center text-gray-400 text-sm">
+                        Клиентов пока нет
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p id="no-results" class="hidden px-6 py-12 text-center text-gray-400 text-sm">Ничего не найдено</p>
+    </div>
+</div>
+
+<script>
+function filterClients() {
+    const search = document.getElementById('search-input').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('.client-row');
+    let visible = 0;
+    rows.forEach(row => {
+        const show = !search || row.dataset.name.includes(search) || row.dataset.email.includes(search);
+        row.classList.toggle('hidden', !show);
+        if (show) visible++;
+    });
+    document.getElementById('no-results').classList.toggle('hidden', visible > 0);
+}
+
+async function postAction(url, okMsg) {
+    try {
+        const res = await fetch(url, { method: 'POST' });
+        if (res.ok) {
+            if (window.showToast) showToast(okMsg);
+            window.location.reload();
+        } else {
+            let msg = 'Ошибка';
+            try { msg = (await res.json()).detail || msg; } catch (e) {}
+            if (window.showToast) showToast(msg, 'error'); else alert(msg);
+        }
+    } catch (e) {
+        if (window.showToast) showToast('Ошибка сети', 'error'); else alert('Ошибка сети');
+    }
+}
+
+function assignSelf(clientId) {
+    postAction('/api/users/' + clientId + '/assign-self', 'Клиент закреплён за вами');
+}
+
+function releaseSelf(clientId) {
+    postAction('/api/users/' + clientId + '/release-self', 'Клиент откреплён');
+}
+</script>
+{% endblock %}

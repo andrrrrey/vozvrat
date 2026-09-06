@@ -22,6 +22,14 @@ async def require_admin(request: Request, db: AsyncSession = Depends(get_db)) ->
     return user
 
 
+async def require_staff(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Разрешить доступ администраторам и сотрудникам (не клиентам)."""
+    user = await get_current_user(request, db)
+    if user.role.value not in ("admin", "staff"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    return user
+
+
 async def _resolve_manager_id(db: AsyncSession, raw) -> Optional[int]:
     """Validate a manager_id form value; return the id of an active staff/admin or None."""
     if raw is None or not str(raw).strip().isdigit():
@@ -406,3 +414,57 @@ async def delete_client_id(user_id: int, cid_id: int, request: Request, db: Asyn
     await db.delete(record)
     await db.flush()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Самоназначение сотрудника на клиента (страница «Клиенты»)
+# ---------------------------------------------------------------------------
+
+@router.post("/{user_id}/assign-self")
+async def assign_self_as_manager(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Назначить текущего сотрудника менеджером клиента.
+
+    Сотрудник может взять только «ничьего» клиента (без менеджера). Администратор
+    может переназначить любого клиента на себя.
+    """
+    user = await require_staff(request, db)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if target.role != UserRole.client:
+        raise HTTPException(status_code=400, detail="Менеджера можно назначить только клиенту")
+
+    if user.role == UserRole.staff and target.manager_id not in (None, user.id):
+        raise HTTPException(status_code=403, detail="Этот клиент уже закреплён за другим сотрудником")
+
+    target.manager_id = user.id
+    await db.flush()
+    logger.info(f"User id={user.id} assigned self as manager of client id={user_id}")
+    return JSONResponse({"ok": True})
+
+
+@router.post("/{user_id}/release-self")
+async def release_self_as_manager(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+    """Открепить менеджера от клиента.
+
+    Сотрудник может открепить только клиента, закреплённого за ним самим.
+    Администратор может открепить любого.
+    """
+    user = await require_staff(request, db)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if target.role != UserRole.client:
+        raise HTTPException(status_code=400, detail="Это не клиент")
+
+    if user.role == UserRole.staff and target.manager_id != user.id:
+        raise HTTPException(status_code=403, detail="Этот клиент закреплён не за вами")
+
+    target.manager_id = None
+    await db.flush()
+    logger.info(f"User id={user.id} released client id={user_id} (manager cleared)")
+    return JSONResponse({"ok": True})
