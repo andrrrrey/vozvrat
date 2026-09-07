@@ -319,6 +319,26 @@ async def users_page(request: Request, db: AsyncSession = Depends(get_db)):
     })
 
 
+@router.get("/clients")
+async def clients_page(request: Request, db: AsyncSession = Depends(get_db)):
+    """Страница «Клиенты» для сотрудников/админа: список и самоназначение менеджера."""
+    user = await get_optional_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.role.value not in ("admin", "staff"):
+        return RedirectResponse(url="/client/refunds", status_code=302)
+
+    from app.models.user import User as UserModel
+    q = clients_for_user_query(user).options(selectinload(UserModel.manager))
+    clients = (await db.execute(q)).scalars().all()
+
+    return templates.TemplateResponse("clients/list.html", {
+        "request": request,
+        "user": user,
+        "clients": clients,
+    })
+
+
 @router.get("/emails")
 async def emails_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = await get_optional_user(request, db)
